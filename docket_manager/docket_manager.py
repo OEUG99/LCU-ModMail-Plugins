@@ -99,3 +99,9 @@ class DocketManager(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(DocketManager(bot))
+
+    try:
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} commands.")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
