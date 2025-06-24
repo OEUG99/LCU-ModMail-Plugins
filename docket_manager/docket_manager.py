@@ -1,0 +1,101 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+from discord import Interaction, InteractionResponse
+
+class DocketManager(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    # Role and channel IDs
+    HOST_ROLE_ID = 1324176164918525982
+    MOD_ROLE_ID = 1229552048672870420
+    SUPPORT_FEED_CHANNEL_ID = 1385085325851885709
+
+    DOCKET_ROLES = {
+        'cafe': 1333090527490609202,
+        'dolls': 1377038061892010066,
+        'rewind': 1324410455032205322,
+        'live': 1297257623548199023,
+    }
+
+    def has_permissions(self, member: discord.Member) -> bool:
+        role_ids = [role.id for role in member.roles]
+        return self.HOST_ROLE_ID in role_ids or self.MOD_ROLE_ID in role_ids
+
+    @app_commands.command(name="assign_docket", description="Assign a docket role to a user (Host/Mod only).")
+    @app_commands.describe(
+        member="The member to assign the role to.",
+        docket_type="The docket type to assign."
+    )
+    @app_commands.choices(docket_type=[
+        app_commands.Choice(name="Cafe", value="cafe"),
+        app_commands.Choice(name="Dolls", value="dolls"),
+        app_commands.Choice(name="Rewind", value="rewind"),
+        app_commands.Choice(name="Live", value="live"),
+    ])
+    async def assign_docket(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        docket_type: app_commands.Choice[str]
+    ):
+        if not self.has_permissions(interaction.user):
+            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            return
+
+        role_id = self.DOCKET_ROLES[docket_type.value]
+        role = interaction.guild.get_role(role_id)
+
+        if role in member.roles:
+            await interaction.response.send_message(f"⚠️ {member.mention} already has the **{role.name}** role.", ephemeral=True)
+            return
+
+        await member.add_roles(role, reason=f"Assigned by {interaction.user}")
+        await interaction.response.send_message(f"✅ Assigned **{role.name}** to {member.mention}.", ephemeral=True)
+
+        support_channel = interaction.guild.get_channel(self.SUPPORT_FEED_CHANNEL_ID)
+        if support_channel:
+            await support_channel.send(
+                f"🟢 {interaction.user.mention} **assigned** {role.name} to {member.mention}."
+            )
+
+    @app_commands.command(name="remove_docket", description="Remove a docket role from a user (Host/Mod only).")
+    @app_commands.describe(
+        member="The member to remove the role from.",
+        docket_type="The docket type to remove."
+    )
+    @app_commands.choices(docket_type=[
+        app_commands.Choice(name="Cafe", value="cafe"),
+        app_commands.Choice(name="Dolls", value="dolls"),
+        app_commands.Choice(name="Rewind", value="rewind"),
+        app_commands.Choice(name="Live", value="live"),
+    ])
+    async def remove_docket(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        docket_type: app_commands.Choice[str]
+    ):
+        if not self.has_permissions(interaction.user):
+            await interaction.response.send_message("❌ You do not have permission to use this command.", ephemeral=True)
+            return
+
+        role_id = self.DOCKET_ROLES[docket_type.value]
+        role = interaction.guild.get_role(role_id)
+
+        if role not in member.roles:
+            await interaction.response.send_message(f"⚠️ {member.mention} does not have the **{role.name}** role.", ephemeral=True)
+            return
+
+        await member.remove_roles(role, reason=f"Removed by {interaction.user}")
+        await interaction.response.send_message(f"✅ Removed **{role.name}** from {member.mention}.", ephemeral=True)
+
+        support_channel = interaction.guild.get_channel(self.SUPPORT_FEED_CHANNEL_ID)
+        if support_channel:
+            await support_channel.send(
+                f"🔴 {interaction.user.mention} **removed** {role.name} from {member.mention}."
+            )
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(DocketManager(bot))
