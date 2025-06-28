@@ -69,6 +69,49 @@ class TrollReactor(commands.Cog):
                 del self.reaction_counts[user.id]  # Clean up their reaction count if it exists
             await ctx.send(f"Removed {user} from the list.")
 
+    import asyncio
+
+    @commands.command(name="bomb")
+    @commands.has_permissions(manage_messages=True)
+    async def bomb(self, ctx, countdown: int = 5):
+        """
+        Starts a bomb countdown in the chat and deletes the last 15 messages (excluding the countdown message).
+        Args:
+            countdown (int): The number of seconds for the countdown (default is 5).
+        """
+        if countdown < 1:
+            await ctx.send("The countdown must be at least 1 second!")
+            return
+
+        # Delete the user's command
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+
+        # Start the countdown message with the bomb emoji
+        bomb_message = await ctx.send(f"💣 The bomb is ticking... {countdown} seconds remaining!")
+
+        # Perform the countdown
+        for remaining in range(countdown - 1, -1, -1):
+            await asyncio.sleep(1)
+            if remaining > 0:
+                await bomb_message.edit(content=f"💣 The bomb is ticking... {remaining} seconds remaining!")
+            else:
+                # Final explosion message
+                await bomb_message.edit(content="💥 BOOM! The bomb has exploded!")
+
+        # Delete the last 15 messages in the chat excluding the bomb message
+        def check(message):
+            # Exclude the bomb message
+            return message.id != bomb_message.id
+
+        try:
+            deleted = await ctx.channel.purge(limit=15, check=check)
+            print(f"Deleted {len(deleted)} messages.")
+        except discord.HTTPException as e:
+            print(f"Failed to delete messages: {e}")
+
 
 async def setup(bot):
     await bot.add_cog(TrollReactor(bot))
