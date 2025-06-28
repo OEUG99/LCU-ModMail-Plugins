@@ -37,23 +37,37 @@ class TrollReactor(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     async def add_user(self, ctx, user: discord.User):
         """Add a user to the troll list."""
+
+        # Delete the user's command
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+
         if user.id in self.target_user_ids:
-            await ctx.send(f"{user} is already on the troll list.")
+            await ctx.send(f"{user} is already on the list.")
         else:
             self.target_user_ids.add(user.id)
-            await ctx.send(f"Added {user} to the troll list.")
+            await ctx.send(f"{user} will pay for their crimes.")
 
     @commands.command(name="trollremove")
     @commands.has_permissions(manage_messages=True)
     async def remove_user(self, ctx, user: discord.User):
+
+        # Delete the user's command
+        try:
+            await ctx.message.delete()
+        except discord.HTTPException:
+            pass
+
         """Remove a user from the troll list."""
         if user.id not in self.target_user_ids:
-            await ctx.send(f"{user} is not on the troll list.")
+            await ctx.send(f"{user} is not on the list.")
         else:
             self.target_user_ids.remove(user.id)
             if user.id in self.reaction_counts:
                 del self.reaction_counts[user.id]  # Clean up their reaction count if it exists
-            await ctx.send(f"Removed {user} from the troll list.")
+            await ctx.send(f"Removed {user} from the list.")
 
 
 async def setup(bot):
