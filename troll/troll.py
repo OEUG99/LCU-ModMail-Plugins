@@ -8,7 +8,7 @@ class TrollReactor(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.target_user_ids = set()
-        self.emoji = '🤡'  # Just the clown emoji
+        self.emoji = '😷'  # Just the clown emoji
         self.reaction_counts = {}  # Dictionary to track reactions {user_id: reaction_count}
 
     @commands.Cog.listener()
