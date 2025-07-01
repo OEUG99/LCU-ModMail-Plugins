@@ -31,7 +31,6 @@ class TrollReactor(commands.Cog):
             if self.reaction_counts[message.author.id] >= 10:
                 self.target_user_ids.remove(message.author.id)  # Remove the user from the troll list
                 del self.reaction_counts[message.author.id]  # Reset their reaction count
-                await message.channel.send(f"Trolling for {message.author} has been disabled after 10 reactions!")
         except discord.HTTPException:
             pass
 
@@ -48,9 +47,13 @@ class TrollReactor(commands.Cog):
 
         if user.id in self.target_user_ids:
             await ctx.send(f"{user} is already on the list.")
+            await asyncio.sleep(5)
+            await ctx.message.delete()
         else:
             self.target_user_ids.add(user.id)
             await ctx.send(f"{user} will pay for their crimes.")
+            await asyncio.sleep(5)
+            await ctx.message.delete()
 
     @commands.command(name="trollremove")
     @commands.has_permissions(manage_messages=True)
@@ -64,12 +67,16 @@ class TrollReactor(commands.Cog):
 
         """Remove a user from the troll list."""
         if user.id not in self.target_user_ids:
-            await ctx.send(f"{user} is not on the list.")
+            msg = await ctx.send(f"{user} is not on the list.")
+            await asyncio.sleep(5)
+            await msg.delete()
         else:
             self.target_user_ids.remove(user.id)
             if user.id in self.reaction_counts:
                 del self.reaction_counts[user.id]  # Clean up their reaction count if it exists
-            await ctx.send(f"Removed {user} from the list.")
+            msg = await ctx.send(f"Removed {user} from the list.")
+            await asyncio.sleep(5)
+            await msg.delete()
 
     import asyncio
 
