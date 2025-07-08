@@ -17,6 +17,7 @@ class DocketManager(commands.Cog):
         'dolls': 1377038061892010066,
         'rewind': 1324410455032205322,
         'live': 1297257623548199023,
+        'tech': 1391996231449972837,
     }
 
     def has_permissions(self, member: discord.Member) -> bool:
@@ -33,6 +34,7 @@ class DocketManager(commands.Cog):
         app_commands.Choice(name="Dolls", value="dolls"),
         app_commands.Choice(name="Rewind", value="rewind"),
         app_commands.Choice(name="Live", value="live"),
+        app_commands.Choice(name="Tech", value="tech"),
     ])
     async def assign_docket(
         self,
@@ -70,6 +72,7 @@ class DocketManager(commands.Cog):
         app_commands.Choice(name="Dolls", value="dolls"),
         app_commands.Choice(name="Rewind", value="rewind"),
         app_commands.Choice(name="Live", value="live"),
+        app_commands.Choice(name="Tech", value="tech"),
     ])
     async def remove_docket(
         self,
