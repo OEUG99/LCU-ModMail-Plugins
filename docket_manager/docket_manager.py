@@ -122,7 +122,7 @@ class DocketManager(commands.Cog):
             return
 
         await member.remove_roles(*roles_to_remove, reason=f"All roles removed by {interaction.user}")
-        await interaction.response.send_message(f"Auditing all roles from {member.mention}.", ephemeral=false)
+        await interaction.response.send_message(f"Auditing all roles from {member.mention}.", ephemeral=False)
 
         # Optional: Log the action in the support feed channel
         support_channel = interaction.guild.get_channel(self.SUPPORT_FEED_CHANNEL_ID)
