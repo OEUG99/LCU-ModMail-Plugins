@@ -100,6 +100,38 @@ class DocketManager(commands.Cog):
                 f"🔴 {interaction.user.mention} **removed** {role.name} from {member.mention}."
             )
 
+    @app_commands.command(name="audit",
+                          description="Remove all roles from a member (requires Manage Roles permission).")
+    @app_commands.describe(member="The member to remove all roles from.")
+    async def remove_all_roles(self, interaction: discord.Interaction, member: discord.Member):
+        if not interaction.user.guild_permissions.manage_roles:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this command. (Manage Roles required)", ephemeral=True)
+            return
+
+        if member == interaction.user:
+            await interaction.response.send_message("❌ You cannot remove your own roles.", ephemeral=True)
+            return
+
+        # Exclude the @everyone role
+        roles_to_remove = [role for role in member.roles if role != interaction.guild.default_role]
+
+        if not roles_to_remove:
+            await interaction.response.send_message(f"⚠️ {member.mention} already has no roles to remove.",
+                                                    ephemeral=True)
+            return
+
+        await member.remove_roles(*roles_to_remove, reason=f"All roles removed by {interaction.user}")
+        await interaction.response.send_message(f"Auditing all roles from {member.mention}.", ephemeral=false)
+
+        # Optional: Log the action in the support feed channel
+        support_channel = interaction.guild.get_channel(self.SUPPORT_FEED_CHANNEL_ID)
+        if support_channel:
+            await support_channel.send(
+                f"🟠 {interaction.user.mention} **removed all roles** from {member.mention} for audit."
+            )
+
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(DocketManager(bot))
 
