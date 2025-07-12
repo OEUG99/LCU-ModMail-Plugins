@@ -31,12 +31,29 @@ class HostCommands(commands.Cog):
         expire_time = datetime.datetime.utcnow() + DISCONNECT_DURATION
         self.kick_targets[(target.id, vc.id)] = expire_time
 
+        # Notify in the context channel
         await ctx.send(
             f"{target.mention} will be auto-kicked from **{vc.name}** for the next 48 hours."
         )
 
-        # kick the user after adding them to the list
-        await target.move_to(None)
+        # Fetch the specific channel using its ID
+        log_channel = self.bot.get_channel(1385085325851885709)  # Replace with the actual channel ID
+
+        if log_channel:
+            await log_channel.send(
+                f"{ctx.author.mention} has banned {target.mention} "
+                f"from **{vc.name}** for 48 hours."
+            )
+        else:
+            await ctx.send("Log channel not found. Ensure the channel ID is correct.")
+
+        # Kick the user after adding them to the list
+        try:
+            await target.move_to(None)
+        except discord.Forbidden:
+            await ctx.send("I don't have permission to kick this user.")
+        except discord.HTTPException as e:
+            await ctx.send(f"An error occurred while trying to kick the user: {e}")
 
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
