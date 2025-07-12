@@ -41,7 +41,7 @@ class TrollReactor(commands.Cog):
         except discord.HTTPException:
             pass
 
-    @commands.command(name="trolladd")
+    @commands.command(name="leaderboard")
     @commands.has_permissions(manage_messages=True)
     async def leaderboard(self, ctx):
         leaderboard = (
