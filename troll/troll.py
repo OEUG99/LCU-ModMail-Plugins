@@ -43,7 +43,24 @@ class TrollReactor(commands.Cog):
 
     @commands.command(name="trolladd")
     @commands.has_permissions(manage_messages=True)
-    async def add_user(self, ctx, user: discord.User):
+    async def leaderboard(self, ctx):
+        leaderboard = (
+            "💰 **Leaderboard** 💰\n\n"
+            "1. 🥇 **Milkers** - $9,999\n"
+            "2. 🥈 **Court** - $8,750\n"
+            "3. 🥉 **Dark** - $8,420\n"
+            "4.    **Bolls** - $7,990\n"
+            "5.    **DramaAlert** - $7,580"
+        )
+        await ctx.send(leaderboard)
+
+    @commands.command(name="trolladd")
+    @commands.has_permissions(manage_messages=True)
+    async def add_user(self, ctx, user: discord.User, emoji=None):
+
+        if emoji:
+            self.emoji = emoji
+
         try:
             await ctx.message.delete()
         except discord.HTTPException:
