@@ -35,6 +35,9 @@ class HostCommands(commands.Cog):
             f"{target.mention} will be auto-kicked from **{vc.name}** for the next 48 hours."
         )
 
+        # kick the user after adding them to the list
+        await target.move_to(None)
+
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         if member.bot:
