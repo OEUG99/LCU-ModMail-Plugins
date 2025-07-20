@@ -30,8 +30,11 @@ class Becky(commands.Cog):
                 seen_ids.add(user.id)
 
                 if any(keyword in reason.lower() for keyword in keywords):
-                    bans = await guild.bans()
-                    banned_user_ids = [ban_entry.user.id for ban_entry in bans]
+                    # Check if user is currently banned
+                    banned_user_ids = set()
+                    async for ban_entry in guild.bans():
+                        banned_user_ids.add(ban_entry.user.id)
+                    
                     if user.id not in banned_user_ids:
                         continue  # Already unbanned or ban expired
 
