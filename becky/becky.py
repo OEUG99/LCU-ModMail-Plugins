@@ -19,37 +19,42 @@ class Becky(commands.Cog):
 
         await ctx.send("🔍 Scanning full audit log. This may take a moment...")
 
-        # Fetch audit log entries
-        entries = guild.audit_logs(action=discord.AuditLogAction.ban)
-        async for entry in entries:  # If supported, this avoids the 'async_generator' issue
-            user = entry.target
-            reason = entry.reason or ""
+        # Fetch audit log entries as an async iterator
+        try:
+            async for entry in guild.audit_logs(action=discord.AuditLogAction.ban):
+                user = entry.target
+                reason = entry.reason or ""
 
-            if user.id in seen_ids:
-                continue  # Prevent duplicate unban attempts
-            seen_ids.add(user.id)
+                if user.id in seen_ids:
+                    continue  # Prevent duplicate unban attempts
+                seen_ids.add(user.id)
 
-            if any(keyword in reason.lower() for keyword in keywords):
-                bans = await guild.bans()
-                banned_user_ids = [ban_entry.user.id for ban_entry in bans]
-                if user.id not in banned_user_ids:
-                    continue  # Already unbanned or ban expired
+                if any(keyword in reason.lower() for keyword in keywords):
+                    bans = await guild.bans()
+                    banned_user_ids = [ban_entry.user.id for ban_entry in bans]
+                    if user.id not in banned_user_ids:
+                        continue  # Already unbanned or ban expired
 
-                try:
-                    await guild.unban(user, reason="Auto-unbanned: matched keyword in audit log ban reason.")
-                    unbanned.append((user, reason))
-                    if log_channel:
-                        await log_channel.send(  # Log the successful unban
-                            f"🔓 **Unbanned**: {user} (`{user.id}`)\n📝 **Reason**: {reason}"
-                        )
-                except Exception as e:
-                    await ctx.send(f"❌ Failed to unban {user}: {e}")
+                    try:
+                        await guild.unban(user, reason="Auto-unbanned: matched keyword in audit log ban reason.")
+                        unbanned.append((user, reason))
+                        if log_channel:
+                            await log_channel.send(  # Log the successful unban
+                                f"🔓 **Unbanned**: {user} (`{user.id}`)\n📝 **Reason**: {reason}"
+                            )
+                    except Exception as e:
+                        await ctx.send(f"❌ Failed to unban {user}: {e}")
 
-        # Report the final result back to the invoking user
-        if unbanned:
-            await ctx.send(f"✅ Unbanned {len(unbanned)} user(s).")
-        else:
-            await ctx.send("🚫 No users found in full audit log with matching ban reasons.")
+            # Report the final result back to the invoking user
+            if unbanned:
+                await ctx.send(f"✅ Unbanned {len(unbanned)} user(s).")
+            else:
+                await ctx.send("🚫 No users found in full audit log with matching ban reasons.")
+
+        except discord.Forbidden:
+            await ctx.send("❌ I don't have permission to view the audit log.")
+        except Exception as e:
+            await ctx.send(f"❌ An unexpected error occurred: {e}")
 
 
 async def setup(bot):
