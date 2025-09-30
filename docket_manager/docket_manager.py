@@ -17,12 +17,15 @@ class DocketManager(commands.Cog):
         'dolls': 1377038061892010066,
         'rewind': 1324410455032205322,
         'live': 1297257623548199023,
-        'tech': 1391996231449972837,
+        'bus': 1391996231449972837,
         'test': 1393624162840346825,
         'nerds': 1393626339705356298,
         'balls': 1393627528882815047,
         'aussy': 1393681143454503075,
         'milkers': 1394122949992386630,
+        'nuts': 1377038061892010066,
+        'reaper': 1407036219111506112,
+        'chubby':1394720080759226519,
     }
 
     def has_permissions(self, member: discord.Member) -> bool:
@@ -39,12 +42,15 @@ class DocketManager(commands.Cog):
         app_commands.Choice(name="Dolls", value="dolls"),
         app_commands.Choice(name="Rewind", value="rewind"),
         app_commands.Choice(name="Live", value="live"),
-        app_commands.Choice(name="Tech", value="tech"),
+        app_commands.Choice(name="bus", value="bus"),
         app_commands.Choice(name="Test", value="test"),
         app_commands.Choice(name="Nerds", value="nerds"),
         app_commands.Choice(name="Balls", value="balls"),
         app_commands.Choice(name="Aussy", value="aussy"),
         app_commands.Choice(name="Milkers", value="milkers"),
+        app_commands.Choice(name="Reaper", value="reaper"),
+        app_commands.Choice(name="Nuts", value="nuts"),
+        app_commands.Choice(name="Chubby", value="chubby")
     ])
     async def assign_docket(
         self,
@@ -88,6 +94,9 @@ class DocketManager(commands.Cog):
         app_commands.Choice(name="Balls", value="balls"),
         app_commands.Choice(name="Aussy", value="aussy"),
         app_commands.Choice(name="Milkers", value="milkers"),
+        app_commands.Choice(name="Reaper", value="reaper"),
+        app_commands.Choice(name="Nuts", value="nuts"),
+        app_commands.Choice(name="Chubby", value="chubby")
     ])
     async def remove_docket(
         self,
