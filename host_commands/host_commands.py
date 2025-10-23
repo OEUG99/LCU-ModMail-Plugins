@@ -14,6 +14,7 @@ class HostCommands(commands.Cog):
     def has_permission(self, member: discord.Member) -> bool:
         return any(role.id in (HOST_ROLE_ID, MOD_ROLE_ID) for role in member.roles)
 
+
     @commands.command(name="vcban")
     async def vcban(self, ctx, target: discord.Member):
         """Auto-kick a user from the VC you're currently in for 48 hours."""
