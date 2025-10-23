@@ -10,6 +10,7 @@ class DocketManager(commands.Cog):
     # Role and channel IDs
     HOST_ROLE_ID = 1324176164918525982
     MOD_ROLE_ID = 1229552048672870420
+    DOCKET_MANAGER_ROLE_ID = 1426719967914491925
     SUPPORT_FEED_CHANNEL_ID = 1385085325851885709
 
     DOCKET_ROLES = {
@@ -38,7 +39,7 @@ class DocketManager(commands.Cog):
 
     def has_permissions(self, member: discord.Member) -> bool:
         role_ids = [role.id for role in member.roles]
-        return self.HOST_ROLE_ID in role_ids or self.MOD_ROLE_ID in role_ids
+        return self.HOST_ROLE_ID in role_ids or self.MOD_ROLE_ID in role_ids or self.DOCKET_MANAGER_ROLE_ID in role_ids
 
     @app_commands.command(name="assign_docket", description="Assign a docket role to a user (Host/Mod only).")
     @app_commands.describe(
