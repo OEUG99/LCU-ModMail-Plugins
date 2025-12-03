@@ -1,4 +1,4 @@
-# gif_timeout_cog.py
+# gif-hater.py - ModMail Plugin
 import re
 import datetime
 from typing import Optional
@@ -115,4 +115,8 @@ class GifTimeoutCog(commands.Cog):
             # unexpected errors
             return
 
-        # Optionally, you could notify a log channel or DM the user; omitted to avoid spam.
+
+# Required setup function for ModMail plugin system
+async def setup(bot: commands.Bot):
+    """Setup function required by ModMail to load this plugin."""
+    await bot.add_cog(GifTimeoutCog(bot))
