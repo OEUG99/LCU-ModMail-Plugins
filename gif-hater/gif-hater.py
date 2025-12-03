@@ -7,10 +7,11 @@ import discord
 from discord.ext import commands
 
 GIF_URL_RE = re.compile(r"https?://[^\s]+\.gif(?:\?[^\s]*)?", re.IGNORECASE)
+TENOR_URL_RE = re.compile(r"https?://(?:[\w-]+\.)?tenor\.com/[\w-]+", re.IGNORECASE)
 
 
 def message_contains_gif(message: discord.Message) -> bool:
-    """Return True if the message contains a GIF via attachment, embed, or URL."""
+    """Return True if the message contains a GIF or Tenor link via attachment, embed, or URL."""
     # 1) Attachments with .gif filename or GIF content type
     for att in message.attachments:
         filename = (att.filename or "").lower()
@@ -20,32 +21,41 @@ def message_contains_gif(message: discord.Message) -> bool:
         if getattr(att, "content_type", None) and "gif" in att.content_type.lower():
             return True
 
-    # 2) Embeds with image or thumbnail that end with .gif
+    # 2) Embeds with image or thumbnail that end with .gif, or Tenor embeds
     for emb in message.embeds:
         # Check embed type for common GIF platforms
         if getattr(emb, "type", None) in ("gifv", "image"):
             if emb.url and ".gif" in emb.url.lower():
                 return True
 
+        # Check for Tenor embeds
+        if getattr(emb, "url", None) and "tenor.com" in emb.url.lower():
+            return True
+
         # embed.image and embed.thumbnail are discord.EmbedProxy objects with .url
         img = getattr(emb, "image", None)
         thumb = getattr(emb, "thumbnail", None)
         for e in (img, thumb):
-            if e and getattr(e, "url", None) and e.url.lower().endswith(".gif"):
-                return True
+            if e and getattr(e, "url", None):
+                url_lower = e.url.lower()
+                if url_lower.endswith(".gif") or "tenor.com" in url_lower:
+                    return True
         # some embeds (like Giphy) may have a .url pointing to gif
         if getattr(emb, "url", None) and emb.url.lower().endswith(".gif"):
             return True
 
-    # 3) Plain text URLs ending with .gif
-    if message.content and GIF_URL_RE.search(message.content):
-        return True
+    # 3) Plain text URLs ending with .gif or Tenor links
+    if message.content:
+        if GIF_URL_RE.search(message.content):
+            return True
+        if TENOR_URL_RE.search(message.content):
+            return True
 
     return False
 
 
 class GifTimeoutCog(commands.Cog):
-    """Cog that deletes GIF messages and times the poster out for 10 seconds."""
+    """Cog that deletes GIF messages (including Tenor links) and times the poster out for 10 seconds."""
 
     def __init__(self, bot: commands.Bot, timeout_seconds: int = 10, target_channel_id: int = 1375291016403222559):
         self.bot = bot
@@ -103,7 +113,7 @@ class GifTimeoutCog(commands.Cog):
         try:
             await member.timeout(
                 datetime.timedelta(seconds=self.timeout_seconds),
-                reason=f"Posted a GIF in #{message.channel} (auto-timeout)"
+                reason=f"Posted a GIF/Tenor link in #{message.channel} (auto-timeout)"
             )
         except discord.Forbidden:
             # bot doesn't have moderate_members permission
