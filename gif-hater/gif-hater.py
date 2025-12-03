@@ -1,49 +1,14 @@
 # gif-hater.py - ModMail Plugin
 import re
 import datetime
-import io
 from typing import Optional
 
 import discord
 from discord.ext import commands
-from PIL import Image
-import pytesseract
 
 GIF_URL_RE = re.compile(r"https?://[^\s]+\.gif(?:\?[^\s]*)?", re.IGNORECASE)
 TENOR_URL_RE = re.compile(r"https?://(?:[\w-]+\.)?tenor\.com/[\w-]+", re.IGNORECASE)
 GIPHY_URL_RE = re.compile(r"https?://(?:[\w-]+\.)?giphy\.com/[\w-]+", re.IGNORECASE)
-
-
-async def check_image_for_phrase(attachment: discord.Attachment, phrase: str = "reset the") -> bool:
-    """
-    Download an image attachment and use OCR to check if it contains the specified phrase.
-    Returns True if the phrase is found (case-insensitive).
-    """
-    # Check if it's an image
-    content_type = getattr(attachment, "content_type", None)
-    if not content_type or not content_type.startswith("image/"):
-        filename = (attachment.filename or "").lower()
-        # Double-check with common image extensions if content_type is missing
-        if not any(filename.endswith(ext) for ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]):
-            return False
-
-    try:
-        # Download the image bytes
-        image_bytes = await attachment.read()
-
-        # Open with PIL
-        image = Image.open(io.BytesIO(image_bytes))
-
-        # Perform OCR
-        text = pytesseract.image_to_string(image)
-
-        # Check if the phrase exists (case-insensitive)
-        return phrase.lower() in text.lower()
-
-    except Exception as e:
-        # If OCR fails, log and return False to avoid false positives
-        print(f"OCR error on {attachment.filename}: {e}")
-        return False
 
 
 def message_contains_gif(message: discord.Message) -> bool:
@@ -124,13 +89,6 @@ class GifTimeoutCog(commands.Cog):
         # Check if this message contains a GIF
         has_gif = message_contains_gif(message)
 
-        # Check if any image attachments contain "reset the" using OCR
-        has_banned_phrase = False
-        for attachment in message.attachments:
-            if await check_image_for_phrase(attachment, "reset the"):
-                has_banned_phrase = True
-                break
-
         # Check if this is a reply/forward to a message with a GIF
         is_gif_reply = False
         if message.reference and message.reference.message_id:
@@ -181,15 +139,9 @@ class GifTimeoutCog(commands.Cog):
                 # Can't fetch the message, skip this check
                 pass
 
-        # If none of the violations are detected, allow the message
-        if not has_gif and not is_gif_reply and not has_banned_phrase:
+        # If neither the message nor the reply contains a GIF, allow it
+        if not has_gif and not is_gif_reply:
             return
-
-        # Determine the reason for deletion
-        if has_banned_phrase:
-            reason = f"Posted image containing banned phrase in #{message.channel} (auto-timeout)"
-        else:
-            reason = f"Posted/replied with GIF content in #{message.channel} (auto-timeout)"
 
         # permissions/safety checks:
         # - Bot needs manage_messages to delete and moderate_members to timeout
@@ -229,7 +181,7 @@ class GifTimeoutCog(commands.Cog):
         try:
             await member.timeout(
                 datetime.timedelta(seconds=self.timeout_seconds),
-                reason=reason
+                reason=f"Posted/replied with GIF content in #{message.channel} (auto-timeout)"
             )
         except discord.Forbidden:
             # bot doesn't have moderate_members permission
