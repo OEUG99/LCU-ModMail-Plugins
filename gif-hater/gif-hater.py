@@ -55,7 +55,7 @@ def message_contains_gif(message: discord.Message) -> bool:
 
 
 class GifTimeoutCog(commands.Cog):
-    """Cog that deletes GIF messages (including Tenor links) and times the poster out for 10 seconds."""
+    """Cog that deletes GIF messages (including Tenor links and replies to GIFs) and times the poster out for 10 seconds."""
 
     def __init__(self, bot: commands.Bot, timeout_seconds: int = 10, target_channel_id: int = 1375291016403222559):
         self.bot = bot
@@ -79,10 +79,25 @@ class GifTimeoutCog(commands.Cog):
         is_gif_reply = False
         if message.reference and message.reference.message_id:
             try:
-                # Fetch the referenced message
+                # Fetch the referenced message to check for GIF attachments
                 referenced_msg = await message.channel.fetch_message(message.reference.message_id)
                 if message_contains_gif(referenced_msg):
                     is_gif_reply = True
+
+                # Also check if any attachments from the referenced message are showing in embeds
+                if referenced_msg.attachments:
+                    for att in referenced_msg.attachments:
+                        filename = (att.filename or "").lower()
+                        if filename.endswith(".gif") or (
+                                getattr(att, "content_type", None) and "gif" in att.content_type.lower()):
+                            # Check if this attachment URL appears in any of the current message's embeds
+                            for emb in message.embeds:
+                                if emb.image and att.url in str(getattr(emb.image, "url", "")):
+                                    is_gif_reply = True
+                                    break
+                                if emb.thumbnail and att.url in str(getattr(emb.thumbnail, "url", "")):
+                                    is_gif_reply = True
+                                    break
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 # Can't fetch the message, skip this check
                 pass
@@ -129,7 +144,7 @@ class GifTimeoutCog(commands.Cog):
         try:
             await member.timeout(
                 datetime.timedelta(seconds=self.timeout_seconds),
-                reason=f"Posted a GIF/Tenor link in #{message.channel} (auto-timeout)"
+                reason=f"Posted/replied with GIF content in #{message.channel} (auto-timeout)"
             )
         except discord.Forbidden:
             # bot doesn't have moderate_members permission
