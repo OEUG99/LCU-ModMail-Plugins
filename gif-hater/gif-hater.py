@@ -72,7 +72,23 @@ class GifTimeoutCog(commands.Cog):
         if message.channel.id != self.target_channel_id:
             return
 
-        if not message_contains_gif(message):
+        # Check if this message contains a GIF
+        has_gif = message_contains_gif(message)
+
+        # Check if this is a reply/forward to a message with a GIF
+        is_gif_reply = False
+        if message.reference and message.reference.message_id:
+            try:
+                # Fetch the referenced message
+                referenced_msg = await message.channel.fetch_message(message.reference.message_id)
+                if message_contains_gif(referenced_msg):
+                    is_gif_reply = True
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                # Can't fetch the message, skip this check
+                pass
+
+        # If neither the message nor the reply contains a GIF, allow it
+        if not has_gif and not is_gif_reply:
             return
 
         # permissions/safety checks:
