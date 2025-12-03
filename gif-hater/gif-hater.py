@@ -8,10 +8,11 @@ from discord.ext import commands
 
 GIF_URL_RE = re.compile(r"https?://[^\s]+\.gif(?:\?[^\s]*)?", re.IGNORECASE)
 TENOR_URL_RE = re.compile(r"https?://(?:[\w-]+\.)?tenor\.com/[\w-]+", re.IGNORECASE)
+GIPHY_URL_RE = re.compile(r"https?://(?:[\w-]+\.)?giphy\.com/[\w-]+", re.IGNORECASE)
 
 
 def message_contains_gif(message: discord.Message) -> bool:
-    """Return True if the message contains a GIF or Tenor link via attachment, embed, or URL."""
+    """Return True if the message contains a GIF, video, or Tenor/Giphy link via attachment, embed, or URL."""
     # 1) Attachments with .gif filename or GIF content type
     for att in message.attachments:
         filename = (att.filename or "").lower()
@@ -21,16 +22,26 @@ def message_contains_gif(message: discord.Message) -> bool:
         if getattr(att, "content_type", None) and "gif" in att.content_type.lower():
             return True
 
-    # 2) Embeds with image or thumbnail that end with .gif, or Tenor embeds
+    # 2) Embeds with image, video, or thumbnail - this catches forwarded GIFs
     for emb in message.embeds:
-        # Check embed type for common GIF platforms
-        if getattr(emb, "type", None) in ("gifv", "image"):
-            if emb.url and ".gif" in emb.url.lower():
-                return True
+        # Check embed type for common GIF/video platforms
+        if getattr(emb, "type", None) in ("gifv", "image", "video"):
+            if emb.url:
+                url_lower = emb.url.lower()
+                if ".gif" in url_lower or "tenor.com" in url_lower or "giphy.com" in url_lower:
+                    return True
 
-        # Check for Tenor embeds
-        if getattr(emb, "url", None) and "tenor.com" in emb.url.lower():
+        # Check for video embeds (forwarded GIFs often appear as video embeds)
+        video = getattr(emb, "video", None)
+        if video and getattr(video, "url", None):
+            # This catches forwarded GIFs that Discord embeds as video
             return True
+
+        # Check for Tenor/Giphy embeds
+        if getattr(emb, "url", None):
+            url_lower = emb.url.lower()
+            if "tenor.com" in url_lower or "giphy.com" in url_lower:
+                return True
 
         # embed.image and embed.thumbnail are discord.EmbedProxy objects with .url
         img = getattr(emb, "image", None)
@@ -38,17 +49,20 @@ def message_contains_gif(message: discord.Message) -> bool:
         for e in (img, thumb):
             if e and getattr(e, "url", None):
                 url_lower = e.url.lower()
-                if url_lower.endswith(".gif") or "tenor.com" in url_lower:
+                if url_lower.endswith(".gif") or "tenor.com" in url_lower or "giphy.com" in url_lower:
                     return True
+
         # some embeds (like Giphy) may have a .url pointing to gif
         if getattr(emb, "url", None) and emb.url.lower().endswith(".gif"):
             return True
 
-    # 3) Plain text URLs ending with .gif or Tenor links
+    # 3) Plain text URLs ending with .gif or Tenor/Giphy links
     if message.content:
         if GIF_URL_RE.search(message.content):
             return True
         if TENOR_URL_RE.search(message.content):
+            return True
+        if GIPHY_URL_RE.search(message.content):
             return True
 
     return False
