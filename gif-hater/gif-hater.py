@@ -84,7 +84,7 @@ class GifTimeoutCog(commands.Cog):
                 if message_contains_gif(referenced_msg):
                     is_gif_reply = True
 
-                # Also check if any attachments from the referenced message are showing in embeds
+                # Check if any GIF attachments from the referenced message are showing in embeds
                 if referenced_msg.attachments:
                     for att in referenced_msg.attachments:
                         filename = (att.filename or "").lower()
@@ -98,6 +98,29 @@ class GifTimeoutCog(commands.Cog):
                                 if emb.thumbnail and att.url in str(getattr(emb.thumbnail, "url", "")):
                                     is_gif_reply = True
                                     break
+
+                # Check if the referenced message had Tenor embeds that are now showing in this reply
+                for ref_emb in referenced_msg.embeds:
+                    ref_url = getattr(ref_emb, "url", None)
+                    if ref_url and "tenor.com" in ref_url.lower():
+                        # Check if this Tenor URL or content appears in the current message's embeds
+                        for curr_emb in message.embeds:
+                            curr_url = getattr(curr_emb, "url", None)
+                            curr_img = getattr(curr_emb, "image", None)
+                            curr_thumb = getattr(curr_emb, "thumbnail", None)
+
+                            # Check if Tenor URL is present
+                            if curr_url and "tenor.com" in curr_url.lower():
+                                is_gif_reply = True
+                                break
+                            # Check if Tenor content is in image/thumbnail
+                            if curr_img and getattr(curr_img, "url", None) and "tenor" in str(curr_img.url).lower():
+                                is_gif_reply = True
+                                break
+                            if curr_thumb and getattr(curr_thumb, "url", None) and "tenor" in str(
+                                    curr_thumb.url).lower():
+                                is_gif_reply = True
+                                break
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 # Can't fetch the message, skip this check
                 pass
