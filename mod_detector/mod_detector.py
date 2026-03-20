@@ -7,7 +7,7 @@ def _nick(val: Optional[str]) -> str:
     if val is None:
         return "None"
     if val.strip() == "":
-        return "“”"  # empty string
+        return '""'  # empty string
     return val[:64] + ("…" if len(val) > 64 else "")
 
 def _roles(roles: Optional[List[discord.Role]]) -> str:
@@ -63,11 +63,11 @@ class Mod_Detector(commands.Cog):
         if not me or not me.guild_permissions.view_audit_log:
             return await ctx.send("❌ I need the **View Audit Log** permission to search nickname changes.")
 
-        await ctx.send("🔍 Searching audit logs for nickname changes…")
+        status_msg = await ctx.send("🔍 Searching the **full** audit log for nickname changes — this may take a moment on large servers…")
 
         matches: List[Tuple[discord.AuditLogEntry, Optional[str], Optional[str]]] = []
         try:
-            async for entry in guild.audit_logs(limit=200, action=discord.AuditLogAction.member_update):
+            async for entry in guild.audit_logs(limit=None, action=discord.AuditLogAction.member_update):
                 if not entry.target or getattr(entry.target, "id", None) != target_id:
                     continue
                 before_nick = getattr(entry.changes.before, "nick", None)
@@ -80,8 +80,10 @@ class Mod_Detector(commands.Cog):
         except discord.HTTPException as e:
             return await ctx.send(f"❌ Discord API error: `{e}`")
 
+        await status_msg.edit(content=f"✅ Audit log scan complete — found **{len(matches)}** nickname change(s).")
+
         if not matches:
-            return await ctx.send("⚠️ No nickname changes found in recent audit logs.")
+            return
 
         # Build embeds (paginate if needed)
         PAGE_SIZE = 10
@@ -118,11 +120,11 @@ class Mod_Detector(commands.Cog):
         if not me or not me.guild_permissions.view_audit_log:
             return await ctx.send("❌ I need the **View Audit Log** permission to search role changes.")
 
-        await ctx.send("🔍 Searching audit logs for role changes…")
+        status_msg = await ctx.send("🔍 Searching the **full** audit log for role changes — this may take a moment on large servers…")
 
         matches: List[Tuple[discord.AuditLogEntry, List[discord.Role], List[discord.Role]]] = []
         try:
-            async for entry in guild.audit_logs(limit=200, action=discord.AuditLogAction.member_update):
+            async for entry in guild.audit_logs(limit=None, action=discord.AuditLogAction.member_update):
                 if not entry.target or getattr(entry.target, "id", None) != target_id:
                     continue
                 before_roles = getattr(entry.changes.before, "roles", [])
@@ -137,8 +139,10 @@ class Mod_Detector(commands.Cog):
         except discord.HTTPException as e:
             return await ctx.send(f"❌ Discord API error: `{e}`")
 
+        await status_msg.edit(content=f"✅ Audit log scan complete — found **{len(matches)}** role change(s).")
+
         if not matches:
-            return await ctx.send("⚠️ No role changes found in recent audit logs.")
+            return
 
         # Build embeds
         PAGE_SIZE = 10
