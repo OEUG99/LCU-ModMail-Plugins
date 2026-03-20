@@ -29,11 +29,18 @@ class Mod_Detector(commands.Cog):
         await self._audit_nick(ctx, user, user_id)
 
     # ------------------------
-    # Role changes command
+    # Role changes command (target-based)
     # ------------------------
-    @commands.command(name="modroles", help="Show role changes for a user.")
+    @commands.command(name="modroles", help="Show role changes made TO a user.")
     async def mod_roles(self, ctx: commands.Context, user: Optional[discord.User] = None, *, user_id: Optional[str] = None):
         await self._audit_roles(ctx, user, user_id)
+
+    # ------------------------
+    # Role actions command (actor-based)
+    # ------------------------
+    @commands.command(name="modactions", help="Show all role changes a user has performed on others.")
+    async def mod_actions(self, ctx: commands.Context, user: Optional[discord.User] = None, *, user_id: Optional[str] = None):
+        await self._audit_actions(ctx, user, user_id)
 
     # ------------------------
     # Internal helpers
@@ -85,7 +92,6 @@ class Mod_Detector(commands.Cog):
         if not matches:
             return
 
-        # Build embeds (paginate if needed)
         PAGE_SIZE = 10
         pages = [matches[i:i + PAGE_SIZE] for i in range(0, len(matches), PAGE_SIZE)]
         target_display = f"<@{target_id}>" if guild.get_member(target_id) else f"{target_id}"
@@ -144,7 +150,6 @@ class Mod_Detector(commands.Cog):
         if not matches:
             return
 
-        # Build embeds
         PAGE_SIZE = 10
         pages = [matches[i:i + PAGE_SIZE] for i in range(0, len(matches), PAGE_SIZE)]
         target_display = f"<@{target_id}>" if guild.get_member(target_id) else f"{target_id}"
@@ -161,6 +166,69 @@ class Mod_Detector(commands.Cog):
                 reason = entry.reason or "No reason provided"
                 embed.add_field(
                     name=f"Changed by {actor} • {when}",
+                    value=f"**Added:** {_roles(added)}\n**Removed:** {_roles(removed)}\n**Reason:** {reason}",
+                    inline=False
+                )
+            await ctx.send(embed=embed)
+
+    async def _audit_actions(self, ctx: commands.Context, user, user_id):
+        """Search audit log by actor — show all role changes a user performed on others."""
+        actor_id = await self._get_target_id(ctx, user, user_id)
+        if actor_id is None:
+            return
+
+        guild = ctx.guild
+        if guild is None:
+            return await ctx.send("❌ This command can only be used in a server.")
+
+        me = guild.me or guild.get_member(self.bot.user.id)
+        if not me or not me.guild_permissions.view_audit_log:
+            return await ctx.send("❌ I need the **View Audit Log** permission to search role changes.")
+
+        actor_display = f"<@{actor_id}>" if guild.get_member(actor_id) else f"{actor_id}"
+        status_msg = await ctx.send(f"🔍 Searching the **full** audit log for role changes performed by {actor_display} — this may take a moment…")
+
+        # Each match: (entry, target_display, added_roles, removed_roles)
+        matches: List[Tuple[discord.AuditLogEntry, str, List[discord.Role], List[discord.Role]]] = []
+        try:
+            async for entry in guild.audit_logs(limit=None, action=discord.AuditLogAction.member_update):
+                # Filter by who performed the action, not who it was done to
+                if not entry.user or entry.user.id != actor_id:
+                    continue
+                before_roles = getattr(entry.changes.before, "roles", [])
+                after_roles = getattr(entry.changes.after, "roles", [])
+                added = [r for r in after_roles if r not in before_roles]
+                removed = [r for r in before_roles if r not in after_roles]
+                if not added and not removed:
+                    continue
+                # Resolve the target of the action
+                target_id = getattr(entry.target, "id", None)
+                target_str = f"<@{target_id}>" if target_id and guild.get_member(target_id) else (str(target_id) if target_id else "Unknown")
+                matches.append((entry, target_str, added, removed))
+        except discord.Forbidden:
+            return await ctx.send("❌ Cannot access audit logs. Check my permissions.")
+        except discord.HTTPException as e:
+            return await ctx.send(f"❌ Discord API error: `{e}`")
+
+        await status_msg.edit(content=f"✅ Audit log scan complete — {actor_display} performed **{len(matches)}** role change(s) on others.")
+
+        if not matches:
+            return
+
+        PAGE_SIZE = 10
+        pages = [matches[i:i + PAGE_SIZE] for i in range(0, len(matches), PAGE_SIZE)]
+
+        for page_index, page in enumerate(pages, start=1):
+            embed = discord.Embed(
+                title=f"Role actions performed by {actor_display}",
+                description=f"Audit log results (page {page_index}/{len(pages)})",
+                color=discord.Color.orange()
+            )
+            for entry, target_str, added, removed in page:
+                when = discord.utils.format_dt(entry.created_at, style="R")
+                reason = entry.reason or "No reason provided"
+                embed.add_field(
+                    name=f"Target: {target_str} • {when}",
                     value=f"**Added:** {_roles(added)}\n**Removed:** {_roles(removed)}\n**Reason:** {reason}",
                     inline=False
                 )
