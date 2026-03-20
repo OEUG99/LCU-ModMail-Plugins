@@ -1,5 +1,4 @@
 import discord
-from discord import app_commands
 from discord.ext import commands
 from typing import Optional, List, Tuple
 
@@ -9,152 +8,159 @@ def _nick(val: Optional[str]) -> str:
         return "None"
     if val.strip() == "":
         return "“”"  # empty string
-    # Limit display to avoid super-wide embeds
     return val[:64] + ("…" if len(val) > 64 else "")
 
+def _roles(roles: Optional[List[discord.Role]]) -> str:
+    if not roles:
+        return "None"
+    return ", ".join([r.name for r in roles])
+
 class Mod_Detector(commands.Cog):
-    """
-    Search the guild audit log for nickname changes affecting a given user.
-    """
+    """Search the guild audit log for nickname or role changes affecting a given user."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # Slash command group (optional—keeps things tidy if you add more later)
-    nick_group = app_commands.Group(
-        name="mod_nick",
-        description="Nickname tools",
-        guild_only=True
-    )
+    # ------------------------
+    # Nickname history command
+    # ------------------------
+    @commands.command(name="modnick", help="Show nickname changes for a user.")
+    async def mod_nick(self, ctx: commands.Context, user: Optional[discord.User] = None, *, user_id: Optional[str] = None):
+        await self._audit_nick(ctx, user, user_id)
 
-    @nick_group.command(name="history", description="Show nickname changes for a user (from the guild audit log).")
-    @app_commands.describe(
-        user="The user to search for (mention or select), OR leave blank and provide a raw user ID.",
-        user_id="Raw Discord ID to search for, if the user isn't in the server / not selectable.",
-        limit="How many audit log entries to check (max 200). Default: 100"
-    )
-    async def nick_history(
-        self,
-        interaction: discord.Interaction,
-        user: Optional[discord.User] = None,
-        user_id: Optional[str] = None,
-        limit: Optional[int] = 100
-    ):
-        # Basic guards
-        if interaction.guild is None:
-            return await interaction.response.send_message(
-                "This command can only be used in a server.", ephemeral=True
-            )
+    # ------------------------
+    # Role changes command
+    # ------------------------
+    @commands.command(name="modroles", help="Show role changes for a user.")
+    async def mod_roles(self, ctx: commands.Context, user: Optional[discord.User] = None, *, user_id: Optional[str] = None):
+        await self._audit_roles(ctx, user, user_id)
 
-        # Normalize/validate target ID
-        target_id: Optional[int] = None
-        if user is not None:
-            target_id = user.id
-        elif user_id is not None:
+    # ------------------------
+    # Internal helpers
+    # ------------------------
+    async def _get_target_id(self, ctx: commands.Context, user: Optional[discord.User], user_id: Optional[str]) -> Optional[int]:
+        if user:
+            return user.id
+        if user_id:
             try:
-                target_id = int(user_id)
+                return int(user_id)
             except ValueError:
-                return await interaction.response.send_message(
-                    "That doesn't look like a valid numeric Discord ID.", ephemeral=True
-                )
-        else:
-            return await interaction.response.send_message(
-                "Please provide a user or a raw user ID.", ephemeral=True
-            )
+                await ctx.send("❌ Invalid numeric Discord ID.")
+                return None
+        await ctx.send("❌ Please provide a user mention or a raw user ID.")
+        return None
 
-        # Clamp limit
-        if limit is None:
-            limit = 100
-        limit = max(1, min(200, limit))
+    async def _audit_nick(self, ctx: commands.Context, user, user_id):
+        target_id = await self._get_target_id(ctx, user, user_id)
+        if target_id is None:
+            return
 
-        # Permission check (helps give a friendly error before the API does)
-        me = interaction.guild.me or interaction.guild.get_member(self.bot.user.id)
-        if me is None or not interaction.guild.me.guild_permissions.view_audit_log:
-            return await interaction.response.send_message(
-                "I need the **View Audit Log** permission to search nickname changes.", ephemeral=True
-            )
+        guild = ctx.guild
+        if guild is None:
+            return await ctx.send("❌ This command can only be used in a server.")
 
-        await interaction.response.defer(thinking=True, ephemeral=True)
+        me = guild.me or guild.get_member(self.bot.user.id)
+        if not me or not me.guild_permissions.view_audit_log:
+            return await ctx.send("❌ I need the **View Audit Log** permission to search nickname changes.")
 
-        guild: discord.Guild = interaction.guild
+        await ctx.send("🔍 Searching audit logs for nickname changes…")
 
-        # Collect matching entries
         matches: List[Tuple[discord.AuditLogEntry, Optional[str], Optional[str]]] = []
-
         try:
-            async for entry in guild.audit_logs(
-                limit=limit,
-                action=discord.AuditLogAction.member_update
-            ):
-                # Only keep entries where the target matches the requested ID
+            async for entry in guild.audit_logs(limit=200, action=discord.AuditLogAction.member_update):
                 if not entry.target or getattr(entry.target, "id", None) != target_id:
                     continue
-
-                # Only keep those where the "nick" field changed
-                # entry.changes.before/after are AuditLogDiff; getattr returns None if nick wasn't touched
                 before_nick = getattr(entry.changes.before, "nick", None)
                 after_nick = getattr(entry.changes.after, "nick", None)
-
-                # If nick didn't actually change, skip
                 if before_nick == after_nick:
                     continue
-
                 matches.append((entry, before_nick, after_nick))
-
         except discord.Forbidden:
-            return await interaction.followup.send(
-                "I couldn't access the audit log. Please ensure I have **View Audit Log**.", ephemeral=True
-            )
+            return await ctx.send("❌ Cannot access audit logs. Check my permissions.")
         except discord.HTTPException as e:
-            return await interaction.followup.send(
-                f"Discord API error while reading the audit log: `{e}`", ephemeral=True
-            )
+            return await ctx.send(f"❌ Discord API error: `{e}`")
 
         if not matches:
-            return await interaction.followup.send(
-                "No nickname changes found for that ID in the recent audit logs I checked.", ephemeral=True
-            )
+            return await ctx.send("⚠️ No nickname changes found in recent audit logs.")
 
-        # Build a concise embed (paginate if needed)
-        # We'll show up to 10 per embed page
+        # Build embeds (paginate if needed)
         PAGE_SIZE = 10
         pages = [matches[i:i + PAGE_SIZE] for i in range(0, len(matches), PAGE_SIZE)]
-
-        embeds: List[discord.Embed] = []
-        target_display = f"<@{target_id}>" if interaction.guild.get_member(target_id) else f"{target_id}"
+        target_display = f"<@{target_id}>" if guild.get_member(target_id) else f"{target_id}"
 
         for page_index, page in enumerate(pages, start=1):
             embed = discord.Embed(
                 title=f"Nickname changes for {target_display}",
-                description=f"Results from the guild audit log (page {page_index}/{len(pages)}).",
+                description=f"Audit log results (page {page_index}/{len(pages)})",
                 color=discord.Color.blurple()
             )
-            for entry, before_nick, after_nick in page:
+            for entry, before, after in page:
                 actor = entry.user.mention if entry.user else "Unknown"
-                when = discord.utils.format_dt(entry.created_at, style="R")  # relative timestamp
-                reason = entry.reason if entry.reason else "No reason provided"
-
+                when = discord.utils.format_dt(entry.created_at, style="R")
+                reason = entry.reason or "No reason provided"
                 embed.add_field(
                     name=f"Changed by {actor} • {when}",
-                    value=(
-                        f"**Before:** {discord.utils.escape_markdown(_nick(before_nick))}\n"
-                        f"**After:**  {discord.utils.escape_markdown(_nick(after_nick))}\n"
-                        f"**Reason:** {discord.utils.escape_markdown(reason)}"
-                    ),
+                    value=f"**Before:** {_nick(before)}\n**After:** {_nick(after)}\n**Reason:** {reason}",
                     inline=False
                 )
-            embeds.append(embed)
+            await ctx.send(embed=embed)
 
-        # If one page, just send it; if multiple, send the first and attach others as followups
-        if len(embeds) == 1:
-            await interaction.followup.send(embed=embeds[0], ephemeral=True)
-        else:
-            # Send first page
-            await interaction.followup.send(embed=embeds[0], ephemeral=True)
-            # Send the rest as additional ephemeral messages (simple, no buttons)
-            for emb in embeds[1:]:
-                await interaction.followup.send(embed=emb, ephemeral=True)
+    async def _audit_roles(self, ctx: commands.Context, user, user_id):
+        target_id = await self._get_target_id(ctx, user, user_id)
+        if target_id is None:
+            return
 
+        guild = ctx.guild
+        if guild is None:
+            return await ctx.send("❌ This command can only be used in a server.")
+
+        me = guild.me or guild.get_member(self.bot.user.id)
+        if not me or not me.guild_permissions.view_audit_log:
+            return await ctx.send("❌ I need the **View Audit Log** permission to search role changes.")
+
+        await ctx.send("🔍 Searching audit logs for role changes…")
+
+        matches: List[Tuple[discord.AuditLogEntry, List[discord.Role], List[discord.Role]]] = []
+        try:
+            async for entry in guild.audit_logs(limit=200, action=discord.AuditLogAction.member_update):
+                if not entry.target or getattr(entry.target, "id", None) != target_id:
+                    continue
+                before_roles = getattr(entry.changes.before, "roles", [])
+                after_roles = getattr(entry.changes.after, "roles", [])
+                added = [r for r in after_roles if r not in before_roles]
+                removed = [r for r in before_roles if r not in after_roles]
+                if not added and not removed:
+                    continue
+                matches.append((entry, added, removed))
+        except discord.Forbidden:
+            return await ctx.send("❌ Cannot access audit logs. Check my permissions.")
+        except discord.HTTPException as e:
+            return await ctx.send(f"❌ Discord API error: `{e}`")
+
+        if not matches:
+            return await ctx.send("⚠️ No role changes found in recent audit logs.")
+
+        # Build embeds
+        PAGE_SIZE = 10
+        pages = [matches[i:i + PAGE_SIZE] for i in range(0, len(matches), PAGE_SIZE)]
+        target_display = f"<@{target_id}>" if guild.get_member(target_id) else f"{target_id}"
+
+        for page_index, page in enumerate(pages, start=1):
+            embed = discord.Embed(
+                title=f"Role changes for {target_display}",
+                description=f"Audit log results (page {page_index}/{len(pages)})",
+                color=discord.Color.green()
+            )
+            for entry, added, removed in page:
+                actor = entry.user.mention if entry.user else "Unknown"
+                when = discord.utils.format_dt(entry.created_at, style="R")
+                reason = entry.reason or "No reason provided"
+                embed.add_field(
+                    name=f"Changed by {actor} • {when}",
+                    value=f"**Added:** {_roles(added)}\n**Removed:** {_roles(removed)}\n**Reason:** {reason}",
+                    inline=False
+                )
+            await ctx.send(embed=embed)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Mod_Detector(bot))
