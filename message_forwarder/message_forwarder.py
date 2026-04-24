@@ -1,12 +1,14 @@
 import discord
 from discord.ext import commands
 import aiohttp
+import io
 
 # Hardcoded forwarding mappings: {source_channel_id: dest_channel_id}
 # Add your channel IDs here
 FORWARDING_RULES = {
     # Example: 1234567890123456789: 9876543210987654321,
     # Add more mappings as needed
+    1497343488482869381: 1497343226368098354, # Live VC
 }
 
 
@@ -65,7 +67,7 @@ class MessageForwarder(commands.Cog):
                 file_bytes = await self.download_attachment(attachment)
                 if file_bytes:
                     files_to_send.append(discord.File(
-                        fp=bytes(file_bytes),
+                        fp=io.BytesIO(file_bytes),
                         filename=attachment.filename,
                         spoiler=attachment.is_spoiler()
                     ))
