@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import aiohttp
 
 # Hardcoded forwarding mappings: {source_channel_id: dest_channel_id}
 # Add your channel IDs here
@@ -15,6 +16,14 @@ class MessageForwarder(commands.Cog):
         self.forwarding_rules = FORWARDING_RULES
         # Fallback: All voice channel text chats forward to this thread
         self.vc_fallback_thread_id = 1497340830669734059
+
+    async def download_attachment(self, attachment):
+        """Download attachment bytes from Discord."""
+        async with aiohttp.ClientSession() as session:
+            async with session.get(attachment.url) as resp:
+                if resp.status == 200:
+                    return await resp.read()
+                return None
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -49,17 +58,24 @@ class MessageForwarder(commands.Cog):
         embed.set_author(name=f"{message.author.name} ({message.author.id})", icon_url=message.author.display_avatar.url)
         embed.set_footer(text=f"From #{message.channel.name}")
 
-        # Add attachments info if any
+        # Prepare files to re-upload (downloads and stores them)
+        files_to_send = []
         if message.attachments:
-            attachment_urls = "\n".join([a.url for a in message.attachments])
-            embed.add_field(name="📎 Attachments", value=attachment_urls, inline=False)
+            for attachment in message.attachments:
+                file_bytes = await self.download_attachment(attachment)
+                if file_bytes:
+                    files_to_send.append(discord.File(
+                        fp=bytes(file_bytes),
+                        filename=attachment.filename,
+                        spoiler=attachment.is_spoiler()
+                    ))
 
-        # Add embeds info if any (just note their presence)
+        # Add note about original embeds if any
         if message.embeds:
             embed.add_field(name="📊 Embeds", value=f"{len(message.embeds)} embed(s) in original message", inline=False)
 
         try:
-            await dest_channel.send(embed=embed)
+            await dest_channel.send(embed=embed, files=files_to_send)
         except discord.Forbidden:
             pass
         except Exception:
