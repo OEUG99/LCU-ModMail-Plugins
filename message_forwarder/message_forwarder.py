@@ -77,7 +77,11 @@ class MessageForwarder(commands.Cog):
             embed.add_field(name="📊 Embeds", value=f"{len(message.embeds)} embed(s) in original message", inline=False)
 
         try:
-            await dest_channel.send(embed=embed, files=files_to_send)
+            # Send embed first
+            await dest_channel.send(embed=embed)
+            # Send attachments separately so they appear below
+            if files_to_send:
+                await dest_channel.send(files=files_to_send)
         except discord.Forbidden:
             pass
         except Exception:
