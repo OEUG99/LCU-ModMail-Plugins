@@ -33,59 +33,61 @@ class MessageForwarder(commands.Cog):
         if message.author.bot:
             return
 
-        # Determine destination based on hardcoded rules or fallback
-        dest_channel_id = None
+        # Determine destinations - can send to both mapped and fallback
+        destinations = set()
 
+        # Check hardcoded rules first
         if message.channel.id in self.forwarding_rules:
-            # Use hardcoded rule if available (priority)
-            dest_channel_id = self.forwarding_rules[message.channel.id]
-        elif isinstance(message.channel, discord.VoiceChannel):
-            # Fallback: voice channel text chat → specific thread
-            dest_channel_id = self.vc_fallback_thread_id
+            destinations.add(self.forwarding_rules[message.channel.id])
 
-        if not dest_channel_id:
+        # Also add fallback for voice channels
+        if isinstance(message.channel, discord.VoiceChannel):
+            destinations.add(self.vc_fallback_thread_id)
+
+        if not destinations:
             return
 
-        dest_channel = self.bot.get_channel(dest_channel_id)
+        # Process each destination
+        for dest_channel_id in destinations:
+            dest_channel = self.bot.get_channel(dest_channel_id)
+            if not dest_channel:
+                continue
 
-        if not dest_channel:
-            return
+            # Build the forwarded message embed
+            embed = discord.Embed(
+                description=message.content,
+                timestamp=message.created_at,
+                color=discord.Color.blurple()
+            )
+            embed.set_author(name=f"{message.author.name} ({message.author.id})", icon_url=message.author.display_avatar.url)
+            embed.set_footer(text=f"From #{message.channel.name}")
 
-        # Build the forwarded message embed
-        embed = discord.Embed(
-            description=message.content,
-            timestamp=message.created_at,
-            color=discord.Color.blurple()
-        )
-        embed.set_author(name=f"{message.author.name} ({message.author.id})", icon_url=message.author.display_avatar.url)
-        embed.set_footer(text=f"From #{message.channel.name}")
+            # Prepare files to re-upload (downloads and stores them)
+            files_to_send = []
+            if message.attachments:
+                for attachment in message.attachments:
+                    file_bytes = await self.download_attachment(attachment)
+                    if file_bytes:
+                        files_to_send.append(discord.File(
+                            fp=io.BytesIO(file_bytes),
+                            filename=attachment.filename,
+                            spoiler=attachment.is_spoiler()
+                        ))
 
-        # Prepare files to re-upload (downloads and stores them)
-        files_to_send = []
-        if message.attachments:
-            for attachment in message.attachments:
-                file_bytes = await self.download_attachment(attachment)
-                if file_bytes:
-                    files_to_send.append(discord.File(
-                        fp=io.BytesIO(file_bytes),
-                        filename=attachment.filename,
-                        spoiler=attachment.is_spoiler()
-                    ))
+            # Add note about original embeds if any
+            if message.embeds:
+                embed.add_field(name="📊 Embeds", value=f"{len(message.embeds)} embed(s) in original message", inline=False)
 
-        # Add note about original embeds if any
-        if message.embeds:
-            embed.add_field(name="📊 Embeds", value=f"{len(message.embeds)} embed(s) in original message", inline=False)
-
-        try:
-            # Send embed first
-            await dest_channel.send(embed=embed)
-            # Send attachments separately so they appear below
-            if files_to_send:
-                await dest_channel.send(files=files_to_send)
-        except discord.Forbidden:
-            pass
-        except Exception:
-            pass
+            try:
+                # Send embed first
+                await dest_channel.send(embed=embed)
+                # Send attachments separately so they appear below
+                if files_to_send:
+                    await dest_channel.send(files=files_to_send)
+            except discord.Forbidden:
+                pass
+            except Exception:
+                pass
 
 
 async def setup(bot):
