@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import re
+import asyncio
 
 # {channel_id: True}
 emote_only_channels: dict[int, bool] = {}
@@ -66,9 +67,40 @@ class EmoteOnly(commands.Cog):
     async def enable_emote_only(self, ctx):
         """Enable emote-only mode in this channel."""
         emote_only_channels[ctx.channel.id] = True
-        await ctx.send(
-            f"🔒 Emote-only mode enabled in {ctx.channel.mention}."
-        )
+
+        msg = await ctx.send("⏳ Loading...")
+
+        await asyncio.sleep(0.3)
+        embed = discord.Embed(title="🔒", color=0xFF0000)
+        await msg.edit(content=None, embed=embed)
+
+        await asyncio.sleep(0.3)
+        embed.color = 0xFF7F00
+        await msg.edit(embed=embed)
+
+        await asyncio.sleep(0.3)
+        embed.color = 0xFFFF00
+        await msg.edit(embed=embed)
+
+        await asyncio.sleep(0.3)
+        embed.color = 0x00FF00
+        await msg.edit(embed=embed)
+
+        await asyncio.sleep(0.3)
+        embed.color = 0x0000FF
+        await msg.edit(embed=embed)
+
+        await asyncio.sleep(0.3)
+        embed.title = "🔒 CHANNEL LOCKDOWN"
+        embed.description = "EMOTES ONLY mode has now been enabled!"
+        embed.color = 0x8B00FF
+        await msg.edit(embed=embed)
+
+        await asyncio.sleep(0.3)
+        embed.title = "🔥 EMOTES ONLY MODE ACTIVATED 🔥"
+        embed.color = 0xFFFFFF
+        embed.set_footer(text=f"🔒 LOCKED: #{ctx.channel.name}")
+        await msg.edit(embed=embed)
 
     @commands.command(name="emoteonlyoff")
     @commands.has_permissions(manage_channels=True)
