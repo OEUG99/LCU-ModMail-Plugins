@@ -70,37 +70,20 @@ class EmoteOnly(commands.Cog):
 
         msg = await ctx.send("⏳ Loading...")
 
-        await asyncio.sleep(0.3)
-        embed = discord.Embed(title="🔒", color=0xFF0000)
+        embed = discord.Embed(
+            title="🔥 EMOTES ONLY MODE ACTIVATED 🔥",
+            description="**EMOTES ONLY mode has now been enabled!**",
+            color=0xFF0000
+        )
+        embed.set_footer(text=f"🔒 LOCKED: #{ctx.channel.name}")
         await msg.edit(content=None, embed=embed)
 
-        await asyncio.sleep(0.3)
-        embed.color = 0xFF7F00
-        await msg.edit(embed=embed)
-
-        await asyncio.sleep(0.3)
-        embed.color = 0xFFFF00
-        await msg.edit(embed=embed)
-
-        await asyncio.sleep(0.3)
-        embed.color = 0x00FF00
-        await msg.edit(embed=embed)
-
-        await asyncio.sleep(0.3)
-        embed.color = 0x0000FF
-        await msg.edit(embed=embed)
-
-        await asyncio.sleep(0.3)
-        embed.title = "🔒 CHANNEL LOCKDOWN"
-        embed.description = "EMOTES ONLY mode has now been enabled!"
-        embed.color = 0x8B00FF
-        await msg.edit(embed=embed)
-
-        await asyncio.sleep(0.3)
-        embed.title = "🔥 EMOTES ONLY MODE ACTIVATED 🔥"
-        embed.color = 0xFFFFFF
-        embed.set_footer(text=f"🔒 LOCKED: #{ctx.channel.name}")
-        await msg.edit(embed=embed)
+        rainbow = [0xFF0000, 0xFF7F00, 0xFFFF00, 0x00FF00, 0x0000FF, 0x8B00FF, 0xFF0000]
+        for _ in range(2):
+            for color in rainbow:
+                embed.color = color
+                await msg.edit(embed=embed)
+                await asyncio.sleep(0.25)
 
     @commands.command(name="emoteonlyoff")
     @commands.has_permissions(manage_channels=True)
