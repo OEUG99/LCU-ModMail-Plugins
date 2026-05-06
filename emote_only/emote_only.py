@@ -63,7 +63,7 @@ class EmoteOnly(commands.Cog):
         return len(non_emoji) == 0
 
     @commands.command(name="emoteonly")
-    @commands.has_permissions(manage_channels=True)
+    @commands.has_permissions(administrator=True)
     async def enable_emote_only(self, ctx):
         """Enable emote-only mode in this channel."""
         emote_only_channels[ctx.channel.id] = True
@@ -86,7 +86,7 @@ class EmoteOnly(commands.Cog):
                 await asyncio.sleep(0.25)
 
     @commands.command(name="emoteonlyoff")
-    @commands.has_permissions(manage_channels=True)
+    @commands.has_permissions(administrator=True)
     async def disable_emote_only(self, ctx):
         """Disable emote-only mode in this channel."""
         if ctx.channel.id in emote_only_channels:
