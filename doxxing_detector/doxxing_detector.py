@@ -98,6 +98,11 @@ class DoxxingDetector(commands.Cog):
         embed.add_field(name="Detected", value=", ".join(match_types), inline=True)
         embed.add_field(name="Deleted", value="Yes" if deleted else "No", inline=True)
         embed.add_field(name="Timed out", value="Yes" if timed_out else "No", inline=True)
+        embed.add_field(
+            name="Message",
+            value=message.content[:1024] if message.content else "[no text content]",
+            inline=False,
+        )
         if error:
             embed.add_field(name="Error", value=error[:1024], inline=False)
 
