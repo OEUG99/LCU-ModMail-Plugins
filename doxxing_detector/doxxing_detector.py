@@ -70,6 +70,13 @@ class DoxxingDetector(commands.Cog):
             return False
         return me.guild_permissions.moderate_members and me.top_role > target.top_role
 
+    @staticmethod
+    def spoiler_text(content: str) -> str:
+        if not content:
+            return "[no text content]"
+        escaped = content.replace("|", "\\|")
+        return f"||{escaped[:1020]}||"
+
     async def log_detection(
         self,
         message: discord.Message,
@@ -100,7 +107,7 @@ class DoxxingDetector(commands.Cog):
         embed.add_field(name="Timed out", value="Yes" if timed_out else "No", inline=True)
         embed.add_field(
             name="Message",
-            value=message.content[:1024] if message.content else "[no text content]",
+            value=self.spoiler_text(message.content),
             inline=False,
         )
         if error:
