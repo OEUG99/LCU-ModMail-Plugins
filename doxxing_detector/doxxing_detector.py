@@ -9,6 +9,13 @@ from discord.ext import commands
 
 TIMEOUT_DURATION = datetime.timedelta(days=7)
 LOG_CHANNEL_ID = 1497340655423324309
+EXEMPT_ROLE_IDS = {
+    1372753814528065696,
+    1372754405711155230,
+    1324176164918525982,
+    1426719967914491925,
+    1372741169385050112,
+}
 
 EMAIL_RE = re.compile(
     r"(?<![\w.+-])"
@@ -34,9 +41,19 @@ ADDRESS_RE = re.compile(
     r"(?:[A-Z0-9][A-Z0-9'.-]*\s+){1,6}"
     r"(?:"
     r"street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|circle|cir|"
-    r"boulevard|blvd|way|place|pl|terrace|ter|trail|trl|parkway|pkwy|"
+    r"boulevard|blvd|terrace|ter|trail|trl|parkway|pkwy|"
     r"highway|hwy|route|rte|apartment|apt|suite|ste|unit"
     r")"
+    r"(?:\.|\b)"
+    r"(?:\s+(?:apt|apartment|suite|ste|unit|#)\s*[A-Z0-9-]+)?",
+    re.IGNORECASE,
+)
+
+AMBIGUOUS_ADDRESS_RE = re.compile(
+    r"(?<!\w)"
+    r"\d{1,6}\s+"
+    r"(?:[A-Z0-9][A-Z0-9'.-]*\s+){1,2}"
+    r"(?:way|place|pl)"
     r"(?:\.|\b)"
     r"(?:\s+(?:apt|apartment|suite|ste|unit|#)\s*[A-Z0-9-]+)?",
     re.IGNORECASE,
@@ -57,7 +74,7 @@ class DoxxingDetector(commands.Cog):
             matches.append("email")
         if PHONE_RE.search(content):
             matches.append("phone number")
-        if ADDRESS_RE.search(content):
+        if ADDRESS_RE.search(content) or AMBIGUOUS_ADDRESS_RE.search(content):
             matches.append("address")
 
         return matches
@@ -76,6 +93,10 @@ class DoxxingDetector(commands.Cog):
             return "[no text content]"
         escaped = content.replace("|", "\\|")
         return f"||{escaped[:1020]}||"
+
+    @staticmethod
+    def is_exempt(member: discord.Member) -> bool:
+        return member.guild_permissions.administrator or any(role.id in EXEMPT_ROLE_IDS for role in member.roles)
 
     async def log_detection(
         self,
@@ -123,6 +144,8 @@ class DoxxingDetector(commands.Cog):
         if message.author.bot or message.guild is None:
             return
         if not isinstance(message.author, discord.Member):
+            return
+        if self.is_exempt(message.author):
             return
 
         match_types = self.find_doxxing_types(message.content)
