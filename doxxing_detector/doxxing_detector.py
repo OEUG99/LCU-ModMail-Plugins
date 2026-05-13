@@ -85,6 +85,8 @@ class DoxxingDetector(commands.Cog):
             return False
         if target.guild_permissions.administrator:
             return False
+        if DoxxingDetector.has_timeout_exempt_role(target):
+            return False
         return me.guild_permissions.moderate_members and me.top_role > target.top_role
 
     @staticmethod
@@ -95,8 +97,8 @@ class DoxxingDetector(commands.Cog):
         return f"||{escaped[:1020]}||"
 
     @staticmethod
-    def is_exempt(member: discord.Member) -> bool:
-        return member.guild_permissions.administrator or any(role.id in EXEMPT_ROLE_IDS for role in member.roles)
+    def has_timeout_exempt_role(member: discord.Member) -> bool:
+        return any(role.id in EXEMPT_ROLE_IDS for role in member.roles)
 
     async def log_detection(
         self,
@@ -144,8 +146,6 @@ class DoxxingDetector(commands.Cog):
         if message.author.bot or message.guild is None:
             return
         if not isinstance(message.author, discord.Member):
-            return
-        if self.is_exempt(message.author):
             return
 
         match_types = self.find_doxxing_types(message.content)
