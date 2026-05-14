@@ -35,7 +35,7 @@ PHONE_RE = re.compile(
     r"(?!\w)"
 )
 
-DISCORD_TIMESTAMP_RE = re.compile(r"<t:\d{1,12}(?::[tTdDfFR])?>")
+DISCORD_TIMESTAMP_RE = re.compile(r"<t:\d{1,12}(?::[A-Za-z])?>")
 
 ADDRESS_RE = re.compile(
     r"(?<!\w)"
