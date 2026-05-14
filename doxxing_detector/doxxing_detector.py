@@ -35,6 +35,8 @@ PHONE_RE = re.compile(
     r"(?!\w)"
 )
 
+DISCORD_TIMESTAMP_RE = re.compile(r"<t:\d{1,12}(?::[tTdDfFR])?>")
+
 ADDRESS_RE = re.compile(
     r"(?<!\w)"
     r"\d{1,6}\s+"
@@ -69,12 +71,13 @@ class DoxxingDetector(commands.Cog):
     @staticmethod
     def find_doxxing_types(content: str) -> list[str]:
         matches = []
+        searchable_content = DISCORD_TIMESTAMP_RE.sub(" ", content)
 
-        if EMAIL_RE.search(content):
+        if EMAIL_RE.search(searchable_content):
             matches.append("email")
-        if PHONE_RE.search(content):
+        if PHONE_RE.search(searchable_content):
             matches.append("phone number")
-        if ADDRESS_RE.search(content) or AMBIGUOUS_ADDRESS_RE.search(content):
+        if ADDRESS_RE.search(searchable_content) or AMBIGUOUS_ADDRESS_RE.search(searchable_content):
             matches.append("address")
 
         return matches
