@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 
-TIMEOUT_DURATION = datetime.timedelta(days=7)
+TIMEOUT_DURATION = datetime.timedelta(hours=3)
 LOG_CHANNEL_ID = 1497340655423324309
 AUTO_FLAG_DM = (
     "Your message was automatically flagged by the moderation bot for possible private personal information "

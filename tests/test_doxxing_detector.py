@@ -1,10 +1,14 @@
 import unittest
+import datetime
 from types import SimpleNamespace
 
-from doxxing_detector.doxxing_detector import AUTO_FLAG_DM, DoxxingDetector, EXEMPT_ROLE_IDS
+from doxxing_detector.doxxing_detector import AUTO_FLAG_DM, DoxxingDetector, EXEMPT_ROLE_IDS, TIMEOUT_DURATION
 
 
 class DoxxingDetectorTest(unittest.TestCase):
+    def test_auto_timeout_duration_is_three_hours(self):
+        self.assertEqual(TIMEOUT_DURATION, datetime.timedelta(hours=3))
+
     def test_common_phrase_with_place_is_not_an_address(self):
         content = (
             "Can someone please tell me that once you hit 30 everything clicks "
