@@ -18,6 +18,39 @@ class DoxxingDetectorTest(unittest.TestCase):
         content = "What the use? Is a 3 v 1 that way"
 
         self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
+        self.assertEqual(DoxxingDetector.find_doxxing_types(f"{content} <---"), [])
+
+    def test_travel_duration_to_drive_is_not_an_address(self):
+        self.assertEqual(
+            DoxxingDetector.find_doxxing_types("I have another 18 hours to drive"),
+            [],
+        )
+        self.assertEqual(
+            DoxxingDetector.find_doxxing_types("Only 45 minutes left to drive"),
+            [],
+        )
+
+    def test_180_full_circle_idiom_is_not_an_address(self):
+        content = (
+            "Good shit, showing a complete 180 brings things full circle. Gives range. "
+            'Content. Gives "which version are we going to get today" if you get a show.'
+        )
+
+        self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
+
+    def test_conversational_number_suffix_phrases_are_not_addresses(self):
+        examples = [
+            "I have 4 hours left on the road",
+            "We still have 5 miles down the road",
+            "That is 10 minutes down the street",
+            "He did a 180 in court",
+            "That case took 3 days in court",
+            "Went from 0 to 100 and back full circle",
+        ]
+
+        for content in examples:
+            with self.subTest(content=content):
+                self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
 
     def test_discord_timestamp_is_not_a_phone_number(self):
         self.assertEqual(DoxxingDetector.find_doxxing_types("<t:1778777152:f>"), [])

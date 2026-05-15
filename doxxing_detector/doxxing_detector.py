@@ -40,16 +40,19 @@ PHONE_RE = re.compile(
 )
 
 DISCORD_TIMESTAMP_RE = re.compile(r"<t:\d{1,12}(?::[A-Za-z])?>")
+GAME_SCORE_RE = re.compile(r"\b\d+\s*v(?:s\.?|ersus)?\s*\d+\b", re.IGNORECASE)
 
-ADDRESS_RE = re.compile(
-    r"(?<!\w)"
-    r"\d{1,6}\s+"
-    r"(?:[A-Z0-9][A-Z0-9'.-]*\s+){1,6}"
-    r"(?:"
+STREET_SUFFIX_RE = (
     r"street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|circle|cir|"
     r"boulevard|blvd|terrace|ter|trail|trl|parkway|pkwy|"
     r"highway|hwy|route|rte|apartment|apt|suite|ste|unit"
-    r")"
+)
+
+ADDRESS_RE = re.compile(
+    r"(?<!\w)"
+    r"(?P<number>\d{1,6})\s+"
+    r"(?P<street_name>(?:[A-Z0-9][A-Z0-9'.-]*\s+){1,6})"
+    rf"(?P<suffix>{STREET_SUFFIX_RE})"
     r"(?:\.|\b)"
     r"(?:\s+(?:apt|apartment|suite|ste|unit|#)\s*[A-Z0-9-]+)?",
     re.IGNORECASE,
@@ -57,13 +60,70 @@ ADDRESS_RE = re.compile(
 
 AMBIGUOUS_ADDRESS_RE = re.compile(
     r"(?<!\w)"
-    r"\d{2,6}\s+"
-    r"(?:[A-Z0-9][A-Z0-9'.-]*\s+){1,2}"
-    r"(?:way|place|pl)"
+    r"(?P<number>\d{2,6})\s+"
+    r"(?P<street_name>(?:[A-Z0-9][A-Z0-9'.-]*\s+){1,2})"
+    r"(?P<suffix>way|place|pl)"
     r"(?:\.|\b)"
     r"(?:\s+(?:apt|apartment|suite|ste|unit|#)\s*[A-Z0-9-]+)?",
     re.IGNORECASE,
 )
+
+CONVERSATIONAL_ADDRESS_WORDS = {
+    "a",
+    "an",
+    "and",
+    "another",
+    "are",
+    "back",
+    "be",
+    "been",
+    "brings",
+    "brought",
+    "complete",
+    "content",
+    "days",
+    "did",
+    "do",
+    "does",
+    "down",
+    "full",
+    "get",
+    "gets",
+    "give",
+    "gives",
+    "going",
+    "got",
+    "had",
+    "has",
+    "have",
+    "hours",
+    "hrs",
+    "if",
+    "in",
+    "is",
+    "left",
+    "me",
+    "miles",
+    "mins",
+    "minutes",
+    "my",
+    "on",
+    "only",
+    "seconds",
+    "that",
+    "the",
+    "things",
+    "this",
+    "to",
+    "today",
+    "version",
+    "was",
+    "we",
+    "were",
+    "which",
+    "you",
+    "your",
+}
 
 
 class DoxxingDetector(commands.Cog):
@@ -73,15 +133,37 @@ class DoxxingDetector(commands.Cog):
         self.bot = bot
 
     @staticmethod
+    def is_likely_address_match(match: re.Match[str]) -> bool:
+        street_name = match.group("street_name")
+        street_words = [
+            word.strip(" .'-").lower()
+            for word in street_name.split()
+            if word.strip(" .'-")
+        ]
+        if any(word in CONVERSATIONAL_ADDRESS_WORDS for word in street_words):
+            return False
+        return True
+
+    @staticmethod
+    def has_address(content: str) -> bool:
+        address_matches = ADDRESS_RE.finditer(content)
+        ambiguous_matches = AMBIGUOUS_ADDRESS_RE.finditer(content)
+        return any(
+            DoxxingDetector.is_likely_address_match(match)
+            for match in [*address_matches, *ambiguous_matches]
+        )
+
+    @staticmethod
     def find_doxxing_types(content: str) -> list[str]:
         matches = []
         searchable_content = DISCORD_TIMESTAMP_RE.sub(" ", content)
+        searchable_content = GAME_SCORE_RE.sub(" ", searchable_content)
 
         if EMAIL_RE.search(searchable_content):
             matches.append("email")
         if PHONE_RE.search(searchable_content):
             matches.append("phone number")
-        if ADDRESS_RE.search(searchable_content) or AMBIGUOUS_ADDRESS_RE.search(searchable_content):
+        if DoxxingDetector.has_address(searchable_content):
             matches.append("address")
 
         return matches
