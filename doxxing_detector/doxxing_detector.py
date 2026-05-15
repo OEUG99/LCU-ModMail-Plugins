@@ -9,6 +9,10 @@ from discord.ext import commands
 
 TIMEOUT_DURATION = datetime.timedelta(days=7)
 LOG_CHANNEL_ID = 1497340655423324309
+AUTO_FLAG_DM = (
+    "Your message was automatically flagged by the moderation bot for possible private personal information "
+    "and was removed. If this was a mistake, please message Mod Mail so the moderation team can review it."
+)
 EXEMPT_ROLE_IDS = {
     1372753814528065696,
     1372754405711155230,
@@ -53,7 +57,7 @@ ADDRESS_RE = re.compile(
 
 AMBIGUOUS_ADDRESS_RE = re.compile(
     r"(?<!\w)"
-    r"\d{1,6}\s+"
+    r"\d{2,6}\s+"
     r"(?:[A-Z0-9][A-Z0-9'.-]*\s+){1,2}"
     r"(?:way|place|pl)"
     r"(?:\.|\b)"
@@ -103,12 +107,23 @@ class DoxxingDetector(commands.Cog):
     def has_timeout_exempt_role(member: discord.Member) -> bool:
         return any(role.id in EXEMPT_ROLE_IDS for role in member.roles)
 
+    @staticmethod
+    async def notify_author(message: discord.Message) -> str | None:
+        try:
+            await message.author.send(AUTO_FLAG_DM)
+        except discord.Forbidden:
+            return "Could not DM the user."
+        except discord.HTTPException as exc:
+            return f"Failed to DM the user: {exc}"
+        return None
+
     async def log_detection(
         self,
         message: discord.Message,
         match_types: list[str],
         deleted: bool,
         timed_out: bool,
+        dm_sent: bool,
         error: str | None = None,
     ):
         guild = message.guild
@@ -131,6 +146,7 @@ class DoxxingDetector(commands.Cog):
         embed.add_field(name="Detected", value=", ".join(match_types), inline=True)
         embed.add_field(name="Deleted", value="Yes" if deleted else "No", inline=True)
         embed.add_field(name="Timed out", value="Yes" if timed_out else "No", inline=True)
+        embed.add_field(name="DM sent", value="Yes" if dm_sent else "No", inline=True)
         embed.add_field(
             name="Message",
             value=self.spoiler_text(message.content),
@@ -157,7 +173,14 @@ class DoxxingDetector(commands.Cog):
 
         deleted = False
         timed_out = False
+        dm_sent = False
         errors = []
+
+        dm_error = await self.notify_author(message)
+        if dm_error:
+            errors.append(dm_error)
+        else:
+            dm_sent = True
 
         try:
             await message.delete()
@@ -188,6 +211,7 @@ class DoxxingDetector(commands.Cog):
             match_types,
             deleted,
             timed_out,
+            dm_sent,
             "; ".join(errors) if errors else None,
         )
 
