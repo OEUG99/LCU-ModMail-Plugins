@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import datetime
 import re
-from urllib.parse import urlsplit, urlunsplit
-
 import discord
 from discord.ext import commands
 
@@ -156,27 +154,24 @@ class DoxxingDetector(commands.Cog):
         )
 
     @staticmethod
-    def strip_url_query_strings(content: str) -> str:
-        def strip_query(match: re.Match[str]) -> str:
+    def strip_http_urls(content: str) -> str:
+        def strip_url(match: re.Match[str]) -> str:
             url = match.group(0)
             trailing = ""
             while url and url[-1] in ".,!?;:":
                 trailing = url[-1] + trailing
                 url = url[:-1]
 
-            parsed = urlsplit(url)
-            if not parsed.scheme or not parsed.netloc:
-                return match.group(0)
-            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")) + trailing
+            return " " + trailing
 
-        return HTTP_URL_RE.sub(strip_query, content)
+        return HTTP_URL_RE.sub(strip_url, content)
 
     @staticmethod
     def find_doxxing_types(content: str) -> list[str]:
         matches = []
         searchable_content = DISCORD_TIMESTAMP_RE.sub(" ", content)
         searchable_content = GAME_SCORE_RE.sub(" ", searchable_content)
-        searchable_content = DoxxingDetector.strip_url_query_strings(searchable_content)
+        searchable_content = DoxxingDetector.strip_http_urls(searchable_content)
 
         if EMAIL_RE.search(searchable_content):
             matches.append("email")

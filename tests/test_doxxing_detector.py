@@ -84,6 +84,15 @@ class DoxxingDetectorTest(unittest.TestCase):
 
         self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
 
+    def test_image_url_filename_digits_are_not_a_phone_number(self):
+        content = (
+            "https://hips.hearstapps.com/hmg-prod/images/"
+            "michael-jackson-prepares-to-enter-the-santa-barbara-county-news-photo-1681237854.jpg"
+            "?crop=1.00xw:0.852xh;0,0.0564xh&resize=980:* THIS IS A WHITE MAN"
+        )
+
+        self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
+
     def test_phone_number_outside_url_query_is_still_detected(self):
         content = (
             "https://example.com/products?campaign=11548931703 "
