@@ -69,6 +69,29 @@ class DoxxingDetectorTest(unittest.TestCase):
             [],
         )
 
+    def test_ad_tracking_url_is_not_a_phone_number(self):
+        content = (
+            "https://mycarpe.com/products/clinical-grade-antiperspirant-underarm-regimen?"
+            "nbt=nb%3Aadwords%3Ag%3A11548931703%3A113426630580%3A477343178126"
+            "&nb_adtype=pla&nb_kwd=&nb_ti=pla-2382843030958&nb_mi=105166672"
+            "&nb_pc=online&nb_pi=34802563547269&nb_ppi=2382843030958"
+            "&nb_placement=&nb_li_ms=&nb_lp_ms=&nb_fii=&nb_ap=&nb_mt="
+            "&tw_source=google&tw_adid=477343178126&tw_campaign=11548931703"
+            "&gad_source=1&gad_campaignid=11548931703"
+            "&gclid=Cj0KCQjwzqXQBhD2ARIsAKrIeU9V5rANjsDVDJoRWVdK16UMNpw0Yd_"
+            "ULGgqZUEILqI3mVpINCrWDsIaAroaEALw_wcB"
+        )
+
+        self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
+
+    def test_phone_number_outside_url_query_is_still_detected(self):
+        content = (
+            "https://example.com/products?campaign=11548931703 "
+            "my number is 555-123-4567"
+        )
+
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(content))
+
     def test_detects_common_address_formats(self):
         self.assertIn("address", DoxxingDetector.find_doxxing_types("123 Main Street"))
         self.assertIn("address", DoxxingDetector.find_doxxing_types("123 Oak Place"))
