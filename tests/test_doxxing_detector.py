@@ -141,6 +141,26 @@ class DoxxingDetectorTest(unittest.TestCase):
 
         self.assertIn("phone number", DoxxingDetector.find_doxxing_types(searchable))
 
+    def test_search_content_includes_gateway_wrapped_snapshot_payload_text(self):
+        message = {
+            "content": "",
+            "embeds": [],
+            "attachments": [],
+            "message_snapshots": [
+                {
+                    "message": {
+                        "content": "my number is 555-123-4567",
+                        "embeds": [],
+                        "attachments": [],
+                    },
+                },
+            ],
+        }
+
+        searchable = DoxxingDetector.message_search_content(message)
+
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(searchable))
+
     def test_search_content_includes_forwarded_embed_text(self):
         embed = SimpleNamespace(
             title="Contact",
@@ -211,6 +231,14 @@ class DoxxingDetectorTest(unittest.TestCase):
         )
 
         self.assertTrue(DoxxingDetector.is_forward_message(message))
+
+    def test_forward_message_detection_uses_snapshots_not_reference(self):
+        message = SimpleNamespace(
+            message_snapshots=[],
+            reference=SimpleNamespace(type=discord.MessageReferenceType.forward),
+        )
+
+        self.assertFalse(DoxxingDetector.is_forward_message(message))
 
     def test_member_with_exempt_role_is_timeout_exempt(self):
         member = SimpleNamespace(

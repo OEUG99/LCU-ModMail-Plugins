@@ -170,15 +170,11 @@ class DoxxingDetector(commands.Cog):
 
     @classmethod
     def is_forward_message(cls, message: discord.Message) -> bool:
-        if cls.sequence_field(message, "message_snapshots"):
-            return True
-
-        reference = cls.field_value(message, "reference")
-        return reference is not None and cls.is_forward_reference(reference)
+        return bool(cls.forward_snapshots(message))
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
-        reference = getattr(message, "reference", None)
-        snapshots = getattr(message, "message_snapshots", [])
+        reference = self.field_value(message, "reference")
+        snapshots = self.forward_snapshots(message)
         if not self.is_forward_message(message):
             return
 
@@ -191,7 +187,7 @@ class DoxxingDetector(commands.Cog):
         )
         embed.add_field(name="Message ID", value=str(getattr(message, "id", None)), inline=True)
         embed.add_field(name="Author ID", value=str(getattr(getattr(message, "author", None), "id", None)), inline=True)
-        embed.add_field(name="Reference type", value=str(getattr(reference, "type", None)), inline=False)
+        embed.add_field(name="Reference type", value=str(self.field_value(reference, "type")), inline=False)
         embed.add_field(name="Snapshots", value=str(len(snapshots)), inline=True)
         embed.add_field(name="Snapshot content lengths", value=str(snapshot_lengths), inline=True)
         embed.add_field(name="Snapshot embed counts", value=str(snapshot_embed_counts), inline=True)
@@ -277,6 +273,18 @@ class DoxxingDetector(commands.Cog):
         value = cls.field_value(item, name, [])
         return value or []
 
+    @classmethod
+    def forward_snapshots(cls, message: discord.Message) -> list:
+        return [
+            cls.snapshot_payload(snapshot)
+            for snapshot in cls.sequence_field(message, "message_snapshots")
+        ]
+
+    @classmethod
+    def snapshot_payload(cls, snapshot):
+        payload = cls.field_value(snapshot, "message")
+        return payload if payload is not None else snapshot
+
     @staticmethod
     def spoiler_text(content: str) -> str:
         if not content:
@@ -361,7 +369,7 @@ class DoxxingDetector(commands.Cog):
         for attachment in cls.sequence_field(message, "attachments"):
             parts.append(cls.attachment_text(attachment))
 
-        for snapshot in cls.sequence_field(message, "message_snapshots"):
+        for snapshot in cls.forward_snapshots(message):
             parts.append(cls.field_value(snapshot, "content", ""))
             for embed in cls.sequence_field(snapshot, "embeds"):
                 parts.append(cls.embed_text(embed))
@@ -412,7 +420,7 @@ class DoxxingDetector(commands.Cog):
             await self.warn_missing_message_content_intent(getattr(message, "guild", None))
 
         content = self.message_search_content(message)
-        snapshots = self.sequence_field(message, "message_snapshots")
+        snapshots = self.forward_snapshots(message)
         if (
             snapshots
             and not any(self.field_value(snapshot, "content", "") for snapshot in snapshots)
