@@ -177,7 +177,7 @@ class DoxxingDetector(commands.Cog):
             f"channel_id={getattr(message.channel, 'id', None)} type={getattr(message, 'type', None)}",
             f"content_len={len(message.content or '')} content={self.compact_text(message.content)!r}",
             f"embeds={len(message.embeds or [])} attachments={len(message.attachments or [])}",
-            f"reference_type={self.field_value(reference, 'type')} reference_message_id={self.field_value(reference, 'message_id')}",
+            f"reference_type={self.field_value(reference, 'type')} reference_channel_id={self.field_value(reference, 'channel_id')} reference_message_id={self.field_value(reference, 'message_id')}",
             f"message_snapshots_attr_present={hasattr(message, 'message_snapshots')}",
             f"raw_snapshot_count={len(raw_snapshots)} normalized_snapshot_count={len(snapshots)}",
         ]
@@ -259,11 +259,6 @@ class DoxxingDetector(commands.Cog):
     @classmethod
     def is_forward_message(cls, message: discord.Message) -> bool:
         return bool(cls.forward_snapshots(message))
-
-    @classmethod
-    def has_message_reference(cls, message: discord.Message) -> bool:
-        reference = cls.field_value(message, "reference")
-        return bool(reference is not None and cls.field_value(reference, "message_id"))
 
     @classmethod
     def has_visible_message_content(cls, message: discord.Message) -> bool:
@@ -498,6 +493,27 @@ class DoxxingDetector(commands.Cog):
 
         return "\n".join(part for part in parts if part)
 
+    async def fetch_message_content_from_channel(
+        self,
+        channel,
+        channel_id,
+        message_id,
+    ) -> tuple[str, str | None]:
+        fetch_message = getattr(channel, "fetch_message", None)
+        if fetch_message is None:
+            return "", f"Referenced channel `{channel_id}` does not support message fetch."
+
+        try:
+            referenced_message = await fetch_message(message_id)
+        except discord.Forbidden:
+            return "", f"Missing permission to fetch referenced message `{message_id}` in channel `{channel_id}`."
+        except discord.NotFound:
+            return "", f"Referenced message `{message_id}` was not found in channel `{channel_id}`."
+        except discord.HTTPException as exc:
+            return "", f"Failed to fetch referenced message `{message_id}` in channel `{channel_id}`: {exc}"
+
+        return self.message_search_content(referenced_message), None
+
     async def fetch_referenced_message_content(self, message: discord.Message) -> tuple[str, str | None]:
         reference = self.field_value(message, "reference")
         if reference is None:
@@ -515,34 +531,35 @@ class DoxxingDetector(commands.Cog):
             self._reference_fetch_cache[cache_key] = result
             return result
 
+        exact_error = None
         channel = self.bot.get_channel(channel_id)
         if channel is None:
             fetch_channel = getattr(self.bot, "fetch_channel", None)
             if fetch_channel is None:
-                return "", f"Could not find referenced channel `{channel_id}`."
-            try:
-                channel = await fetch_channel(channel_id)
-            except discord.Forbidden:
-                return "", f"Missing permission to fetch referenced channel `{channel_id}`."
-            except discord.NotFound:
-                return "", f"Referenced channel `{channel_id}` was not found."
-            except discord.HTTPException as exc:
-                return "", f"Failed to fetch referenced channel `{channel_id}`: {exc}"
+                exact_error = f"Could not find referenced channel `{channel_id}`."
+            else:
+                try:
+                    channel = await fetch_channel(channel_id)
+                except discord.Forbidden:
+                    exact_error = f"Missing permission to fetch referenced channel `{channel_id}`."
+                except discord.NotFound:
+                    exact_error = f"Referenced channel `{channel_id}` was not found."
+                except discord.HTTPException as exc:
+                    exact_error = f"Failed to fetch referenced channel `{channel_id}`: {exc}"
 
-        fetch_message = getattr(channel, "fetch_message", None)
-        if fetch_message is None:
-            return "", f"Referenced channel `{channel_id}` does not support message fetch."
+        if channel is not None:
+            result = await self.fetch_message_content_from_channel(channel, channel_id, message_id)
+            if result[1] is None:
+                self._reference_fetch_cache[cache_key] = result
+                return result
+            exact_error = result[1]
 
-        try:
-            forwarded_message = await fetch_message(message_id)
-        except discord.Forbidden:
-            return "", f"Missing permission to fetch referenced message `{message_id}`."
-        except discord.NotFound:
-            return "", f"Referenced message `{message_id}` was not found."
-        except discord.HTTPException as exc:
-            return "", f"Failed to fetch referenced message `{message_id}`: {exc}"
-
-        result = (self.message_search_content(forwarded_message), None)
+        result = await self.fetch_referenced_message_from_guild(
+            message,
+            message_id,
+            skip_channel_ids={channel_id},
+            prior_error=exact_error,
+        )
         self._reference_fetch_cache[cache_key] = result
         return result
 
@@ -550,16 +567,15 @@ class DoxxingDetector(commands.Cog):
         self,
         message: discord.Message,
         message_id: int,
+        skip_channel_ids: set[int] | None = None,
+        prior_error: str | None = None,
     ) -> tuple[str, str | None]:
         guild = self.field_value(message, "guild")
         if guild is None:
-            return "", "Reference is missing channel_id and the message has no guild."
+            return "", prior_error or "Reference is missing channel_id and the message has no guild."
 
-        checked_channel_ids = set()
+        checked_channel_ids = set(skip_channel_ids or [])
         channels = []
-        current_channel = self.field_value(message, "channel")
-        if current_channel is not None:
-            channels.append(current_channel)
         channels.extend(self.sequence_field(guild, "text_channels"))
         channels.extend(self.sequence_field(guild, "threads"))
         channels.extend(
@@ -579,18 +595,17 @@ class DoxxingDetector(commands.Cog):
             if fetch_message is None:
                 continue
 
-            try:
-                referenced_message = await fetch_message(message_id)
-            except (discord.Forbidden, discord.NotFound):
+            content, error = await self.fetch_message_content_from_channel(channel, channel_id, message_id)
+            if error is None:
+                return content, None
+            if "not found" not in error and "Missing permission" not in error:
+                fetch_errors.append(error)
                 continue
-            except discord.HTTPException as exc:
-                fetch_errors.append(f"{channel_id}: {exc}")
-                continue
-
-            return self.message_search_content(referenced_message), None
 
         if fetch_errors:
             return "", f"Could not load referenced message `{message_id}` from guild channels: {'; '.join(fetch_errors)[:900]}"
+        if prior_error:
+            return "", f"{prior_error}; referenced message `{message_id}` was not found in any other readable guild channel."
         return "", f"Referenced message `{message_id}` was not found in any readable guild channel."
 
     async def fetch_forwarded_message_content(self, message: discord.Message) -> str:
