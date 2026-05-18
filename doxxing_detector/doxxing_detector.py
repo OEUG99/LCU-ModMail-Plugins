@@ -146,6 +146,31 @@ class DoxxingDetector(commands.Cog):
     def has_message_content_intent(self) -> bool:
         return getattr(getattr(self.bot, "intents", None), "message_content", True)
 
+    def log_forward_debug(self, message: discord.Message, searchable_content: str):
+        reference = getattr(message, "reference", None)
+        snapshots = getattr(message, "message_snapshots", [])
+        if reference is None and not snapshots:
+            return
+
+        snapshot_lengths = [
+            len(getattr(snapshot, "content", "") or "")
+            for snapshot in snapshots
+        ]
+        snapshot_embed_counts = [
+            len(getattr(snapshot, "embeds", []) or [])
+            for snapshot in snapshots
+        ]
+        print(
+            "DoxxingDetector forward debug: "
+            f"message_id={getattr(message, 'id', None)} "
+            f"author_id={getattr(getattr(message, 'author', None), 'id', None)} "
+            f"reference_type={getattr(reference, 'type', None)} "
+            f"snapshots={len(snapshots)} "
+            f"snapshot_content_lengths={snapshot_lengths} "
+            f"snapshot_embed_counts={snapshot_embed_counts} "
+            f"searchable_length={len(searchable_content)}"
+        )
+
     @commands.Cog.listener()
     async def on_ready(self):
         if not self.has_message_content_intent():
@@ -230,6 +255,16 @@ class DoxxingDetector(commands.Cog):
                 getattr(field, "value", None)
                 for field in getattr(embed, "fields", [])
             )
+            if value
+        )
+        author = getattr(embed, "author", None)
+        footer = getattr(embed, "footer", None)
+        parts.extend(
+            value
+            for value in [
+                getattr(author, "name", None),
+                getattr(footer, "text", None),
+            ]
             if value
         )
         return "\n".join(part for part in parts if part)
@@ -319,7 +354,9 @@ class DoxxingDetector(commands.Cog):
             )
 
         fetched_content = await self.fetch_forwarded_message_content(message)
-        return "\n".join(part for part in [content, fetched_content] if part)
+        searchable_content = "\n".join(part for part in [content, fetched_content] if part)
+        self.log_forward_debug(message, searchable_content)
+        return searchable_content
 
     @staticmethod
     def has_timeout_exempt_role(member: discord.Member) -> bool:
