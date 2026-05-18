@@ -497,6 +497,69 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(sent_embeds), 1)
         self.assertEqual(sent_embeds[0].title, "Unscannable referenced message removed")
 
+    async def test_on_message_scans_refetched_forward_snapshots(self):
+        sent_embeds = []
+        sent_dms = []
+        deleted = []
+
+        async def send_log(embed):
+            sent_embeds.append(embed)
+
+        async def send_dm(content):
+            sent_dms.append(content)
+
+        async def delete_message():
+            deleted.append(True)
+
+        class FakeChannel:
+            id = 456
+            mention = "#general"
+
+            async def fetch_message(self, message_id):
+                self.fetched_message_id = message_id
+                return SimpleNamespace(
+                    content="",
+                    embeds=[],
+                    attachments=[],
+                    message_snapshots=[
+                        SimpleNamespace(
+                            content="my number is 555-123-4567",
+                            embeds=[],
+                            attachments=[],
+                        ),
+                    ],
+                    reference=None,
+                )
+
+        channel = FakeChannel()
+        log_channel = SimpleNamespace(send=send_log)
+        guild = SimpleNamespace(
+            get_channel=lambda channel_id: log_channel,
+            get_member=lambda member_id: None,
+            me=None,
+        )
+        bot = SimpleNamespace(get_channel=lambda channel_id: log_channel, user=SimpleNamespace(id=999))
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            id=123,
+            guild=guild,
+            author=SimpleNamespace(bot=False, mention="@user", id=321, send=send_dm),
+            channel=channel,
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(type=None, channel_id=None, message_id=789),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(channel.fetched_message_id, 123)
+        self.assertEqual(deleted, [True])
+        self.assertEqual(sent_dms, [AUTO_FLAG_DM])
+        self.assertEqual(sent_embeds[-1].title, "Doxxing content removed")
+
 
 if __name__ == "__main__":
     unittest.main()

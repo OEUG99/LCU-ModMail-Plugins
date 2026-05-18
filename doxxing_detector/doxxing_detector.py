@@ -297,6 +297,14 @@ class DoxxingDetector(commands.Cog):
             and not cls.forward_snapshots(message)
         )
 
+    @classmethod
+    def is_reference_like_message(cls, message: discord.Message) -> bool:
+        return (
+            cls.may_need_current_message_refetch(message)
+            or cls.has_message_id_without_reference_channel(message)
+            or cls.needs_reference_fetch_for_scan(message)
+        )
+
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
         reference = self.field_value(message, "reference")
         snapshots = self.forward_snapshots(message)
@@ -832,9 +840,10 @@ class DoxxingDetector(commands.Cog):
             return
 
         is_forward_message = self.is_forward_message(message)
-        if message.author.bot and not is_forward_message:
+        is_reference_like_message = self.is_reference_like_message(message)
+        if message.author.bot and not is_forward_message and not is_reference_like_message:
             return
-        if not isinstance(message.author, discord.Member) and not is_forward_message:
+        if not isinstance(message.author, discord.Member) and not is_forward_message and not is_reference_like_message:
             return
 
         searchable_content = await self.message_search_content_with_forward_fetch(message)
