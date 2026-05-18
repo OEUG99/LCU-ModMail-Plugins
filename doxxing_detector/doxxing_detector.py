@@ -216,8 +216,16 @@ class DoxxingDetector(commands.Cog):
         return "\n".join(part for part in parts if part)
 
     @classmethod
-    def message_search_content(cls, message: discord.Message) -> str:
-        parts = [message.content]
+    def message_search_content(cls, message: discord.Message, seen: set[int] | None = None) -> str:
+        if seen is None:
+            seen = set()
+
+        message_id = id(message)
+        if message_id in seen:
+            return ""
+        seen.add(message_id)
+
+        parts = [getattr(message, "content", "")]
 
         for embed in getattr(message, "embeds", []):
             parts.append(cls.embed_text(embed))
@@ -227,7 +235,47 @@ class DoxxingDetector(commands.Cog):
             for embed in getattr(snapshot, "embeds", []):
                 parts.append(cls.embed_text(embed))
 
+        reference = getattr(message, "reference", None)
+        if reference is not None and getattr(reference, "type", None) is discord.MessageReferenceType.forward:
+            resolved = getattr(reference, "resolved", None)
+            if isinstance(resolved, discord.Message):
+                parts.append(cls.message_search_content(resolved, seen))
+
+            cached_message = getattr(reference, "cached_message", None)
+            if isinstance(cached_message, discord.Message):
+                parts.append(cls.message_search_content(cached_message, seen))
+
         return "\n".join(part for part in parts if part)
+
+    async def fetch_forwarded_message_content(self, message: discord.Message) -> str:
+        reference = getattr(message, "reference", None)
+        if reference is None or getattr(reference, "type", None) is not discord.MessageReferenceType.forward:
+            return ""
+        if not reference.channel_id or not reference.message_id:
+            return ""
+
+        channel = self.bot.get_channel(reference.channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(reference.channel_id)
+            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                return ""
+
+        fetch_message = getattr(channel, "fetch_message", None)
+        if fetch_message is None:
+            return ""
+
+        try:
+            forwarded_message = await fetch_message(reference.message_id)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            return ""
+
+        return self.message_search_content(forwarded_message)
+
+    async def message_search_content_with_forward_fetch(self, message: discord.Message) -> str:
+        content = self.message_search_content(message)
+        fetched_content = await self.fetch_forwarded_message_content(message)
+        return "\n".join(part for part in [content, fetched_content] if part)
 
     @staticmethod
     def has_timeout_exempt_role(member: discord.Member) -> bool:
@@ -275,7 +323,7 @@ class DoxxingDetector(commands.Cog):
         embed.add_field(name="DM sent", value="Yes" if dm_sent else "No", inline=True)
         embed.add_field(
             name="Message",
-            value=self.spoiler_text(self.message_search_content(message)),
+            value=self.spoiler_text(await self.message_search_content_with_forward_fetch(message)),
             inline=False,
         )
         if error:
@@ -293,7 +341,7 @@ class DoxxingDetector(commands.Cog):
         if not isinstance(message.author, discord.Member):
             return
 
-        searchable_content = self.message_search_content(message)
+        searchable_content = await self.message_search_content_with_forward_fetch(message)
         match_types = self.find_doxxing_types(searchable_content)
         if not match_types:
             return

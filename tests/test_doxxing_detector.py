@@ -2,6 +2,8 @@ import unittest
 import datetime
 from types import SimpleNamespace
 
+import discord
+
 from doxxing_detector.doxxing_detector import AUTO_FLAG_DM, DoxxingDetector, EXEMPT_ROLE_IDS, TIMEOUT_DURATION
 
 
@@ -158,6 +160,38 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(await DoxxingDetector.notify_author(message))
         self.assertEqual(sent_messages, [AUTO_FLAG_DM])
+
+    async def test_forward_reference_fetch_content_is_scanned(self):
+        class FakeChannel:
+            async def fetch_message(self, message_id):
+                self.fetched_message_id = message_id
+                return SimpleNamespace(
+                    content="my address is 123 Main Street",
+                    embeds=[],
+                    message_snapshots=[],
+                    reference=None,
+                )
+
+        channel = FakeChannel()
+        bot = SimpleNamespace(get_channel=lambda channel_id: channel)
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            content="forward wrapper text",
+            embeds=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(
+                type=discord.MessageReferenceType.forward,
+                channel_id=456,
+                message_id=789,
+                resolved=None,
+                cached_message=None,
+            ),
+        )
+
+        searchable = await detector.message_search_content_with_forward_fetch(message)
+
+        self.assertEqual(channel.fetched_message_id, 789)
+        self.assertIn("address", DoxxingDetector.find_doxxing_types(searchable))
 
 
 if __name__ == "__main__":
