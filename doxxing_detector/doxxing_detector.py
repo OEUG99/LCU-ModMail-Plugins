@@ -134,6 +134,7 @@ class DoxxingDetector(commands.Cog):
         self._warned_missing_message_content_intent = False
         self._warned_empty_forward_snapshot_content = False
         self._reference_fetch_cache = {}
+        self._message_refetch_cache = {}
 
     def get_log_channel(self, guild: discord.Guild | None = None):
         log_channel = guild.get_channel(LOG_CHANNEL_ID) if guild is not None else None
@@ -286,6 +287,14 @@ class DoxxingDetector(commands.Cog):
             reference is not None
             and cls.field_value(reference, "message_id")
             and not cls.field_value(reference, "channel_id")
+        )
+
+    @classmethod
+    def may_need_current_message_refetch(cls, message: discord.Message) -> bool:
+        return bool(
+            cls.field_value(message, "id")
+            and cls.field_value(message, "reference") is not None
+            and not cls.forward_snapshots(message)
         )
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
@@ -446,6 +455,34 @@ class DoxxingDetector(commands.Cog):
             if value
         )
         return "\n".join(part for part in parts if part)
+
+    async def fetch_current_message_content(self, message: discord.Message) -> tuple[str, str | None]:
+        message_id = self.field_value(message, "id")
+        channel = self.field_value(message, "channel")
+        channel_id = self.field_value(channel, "id")
+        if not message_id or channel is None:
+            return "", "Message is missing id or channel."
+
+        cache_key = (channel_id, message_id)
+        if cache_key in self._message_refetch_cache:
+            return self._message_refetch_cache[cache_key]
+
+        fetch_message = getattr(channel, "fetch_message", None)
+        if fetch_message is None:
+            return "", f"Current channel `{channel_id}` does not support message fetch."
+
+        try:
+            fetched_message = await fetch_message(message_id)
+        except discord.Forbidden:
+            return "", f"Missing permission to refetch message `{message_id}` in channel `{channel_id}`."
+        except discord.NotFound:
+            return "", f"Message `{message_id}` was not found when refetching current channel `{channel_id}`."
+        except discord.HTTPException as exc:
+            return "", f"Failed to refetch message `{message_id}` in channel `{channel_id}`: {exc}"
+
+        result = (self.message_search_content(fetched_message), None)
+        self._message_refetch_cache[cache_key] = result
+        return result
 
     @classmethod
     def attachment_text(cls, attachment: discord.Attachment | dict) -> str:
@@ -632,6 +669,9 @@ class DoxxingDetector(commands.Cog):
             await self.warn_missing_message_content_intent(getattr(message, "guild", None))
 
         content = self.message_search_content(message)
+        refetched_content = ""
+        if self.may_need_current_message_refetch(message):
+            refetched_content, _error = await self.fetch_current_message_content(message)
         snapshots = self.forward_snapshots(message)
         if (
             snapshots
@@ -652,13 +692,18 @@ class DoxxingDetector(commands.Cog):
             await self.send_log_embed(embed, getattr(message, "guild", None))
 
         fetched_content = ""
-        if self.needs_reference_fetch_for_scan(message):
+        if not refetched_content and self.needs_reference_fetch_for_scan(message):
             fetched_content, _error = await self.fetch_referenced_message_content(message)
-        searchable_content = "\n".join(part for part in [content, fetched_content] if part)
+        searchable_content = "\n".join(part for part in [content, refetched_content, fetched_content] if part)
         await self.log_forward_debug(message, searchable_content)
         return searchable_content
 
     async def unresolved_reference_error(self, message: discord.Message) -> str | None:
+        if self.may_need_current_message_refetch(message):
+            refetched_content, _error = await self.fetch_current_message_content(message)
+            if refetched_content:
+                return None
+
         if self.has_message_id_without_reference_channel(message):
             reference = self.field_value(message, "reference")
             return (
