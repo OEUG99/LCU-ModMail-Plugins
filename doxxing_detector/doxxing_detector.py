@@ -133,6 +133,7 @@ class DoxxingDetector(commands.Cog):
         self.bot = bot
         self._warned_missing_message_content_intent = False
         self._warned_empty_forward_snapshot_content = False
+        self._reference_fetch_cache = {}
 
     def get_log_channel(self, guild: discord.Guild | None = None):
         log_channel = guild.get_channel(LOG_CHANNEL_ID) if guild is not None else None
@@ -258,6 +259,28 @@ class DoxxingDetector(commands.Cog):
     @classmethod
     def is_forward_message(cls, message: discord.Message) -> bool:
         return bool(cls.forward_snapshots(message))
+
+    @classmethod
+    def has_message_reference(cls, message: discord.Message) -> bool:
+        reference = cls.field_value(message, "reference")
+        return bool(reference is not None and cls.field_value(reference, "message_id"))
+
+    @classmethod
+    def has_visible_message_content(cls, message: discord.Message) -> bool:
+        return bool(
+            cls.field_value(message, "content", "")
+            or cls.sequence_field(message, "embeds")
+            or cls.sequence_field(message, "attachments")
+        )
+
+    @classmethod
+    def needs_reference_fetch_for_scan(cls, message: discord.Message) -> bool:
+        reference = cls.field_value(message, "reference")
+        if reference is None or not cls.field_value(reference, "message_id"):
+            return False
+        if cls.is_forward_reference(reference):
+            return True
+        return not cls.has_visible_message_content(message) and not cls.forward_snapshots(message)
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
         reference = self.field_value(message, "reference")
@@ -475,32 +498,108 @@ class DoxxingDetector(commands.Cog):
 
         return "\n".join(part for part in parts if part)
 
+    async def fetch_referenced_message_content(self, message: discord.Message) -> tuple[str, str | None]:
+        reference = self.field_value(message, "reference")
+        if reference is None:
+            return "", "Message has no reference."
+        channel_id = self.field_value(reference, "channel_id")
+        message_id = self.field_value(reference, "message_id")
+        if not message_id:
+            return "", "Reference is missing message_id."
+        cache_key = (id(message), channel_id, message_id)
+        if cache_key in self._reference_fetch_cache:
+            return self._reference_fetch_cache[cache_key]
+
+        if not channel_id:
+            result = await self.fetch_referenced_message_from_guild(message, message_id)
+            self._reference_fetch_cache[cache_key] = result
+            return result
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is None:
+            fetch_channel = getattr(self.bot, "fetch_channel", None)
+            if fetch_channel is None:
+                return "", f"Could not find referenced channel `{channel_id}`."
+            try:
+                channel = await fetch_channel(channel_id)
+            except discord.Forbidden:
+                return "", f"Missing permission to fetch referenced channel `{channel_id}`."
+            except discord.NotFound:
+                return "", f"Referenced channel `{channel_id}` was not found."
+            except discord.HTTPException as exc:
+                return "", f"Failed to fetch referenced channel `{channel_id}`: {exc}"
+
+        fetch_message = getattr(channel, "fetch_message", None)
+        if fetch_message is None:
+            return "", f"Referenced channel `{channel_id}` does not support message fetch."
+
+        try:
+            forwarded_message = await fetch_message(message_id)
+        except discord.Forbidden:
+            return "", f"Missing permission to fetch referenced message `{message_id}`."
+        except discord.NotFound:
+            return "", f"Referenced message `{message_id}` was not found."
+        except discord.HTTPException as exc:
+            return "", f"Failed to fetch referenced message `{message_id}`: {exc}"
+
+        result = (self.message_search_content(forwarded_message), None)
+        self._reference_fetch_cache[cache_key] = result
+        return result
+
+    async def fetch_referenced_message_from_guild(
+        self,
+        message: discord.Message,
+        message_id: int,
+    ) -> tuple[str, str | None]:
+        guild = self.field_value(message, "guild")
+        if guild is None:
+            return "", "Reference is missing channel_id and the message has no guild."
+
+        checked_channel_ids = set()
+        channels = []
+        current_channel = self.field_value(message, "channel")
+        if current_channel is not None:
+            channels.append(current_channel)
+        channels.extend(self.sequence_field(guild, "text_channels"))
+        channels.extend(self.sequence_field(guild, "threads"))
+        channels.extend(
+            channel
+            for channel in self.sequence_field(guild, "channels")
+            if hasattr(channel, "fetch_message")
+        )
+
+        fetch_errors = []
+        for channel in channels:
+            channel_id = self.field_value(channel, "id")
+            if channel_id in checked_channel_ids:
+                continue
+            checked_channel_ids.add(channel_id)
+
+            fetch_message = getattr(channel, "fetch_message", None)
+            if fetch_message is None:
+                continue
+
+            try:
+                referenced_message = await fetch_message(message_id)
+            except (discord.Forbidden, discord.NotFound):
+                continue
+            except discord.HTTPException as exc:
+                fetch_errors.append(f"{channel_id}: {exc}")
+                continue
+
+            return self.message_search_content(referenced_message), None
+
+        if fetch_errors:
+            return "", f"Could not load referenced message `{message_id}` from guild channels: {'; '.join(fetch_errors)[:900]}"
+        return "", f"Referenced message `{message_id}` was not found in any readable guild channel."
+
     async def fetch_forwarded_message_content(self, message: discord.Message) -> str:
         reference = self.field_value(message, "reference")
         if reference is None or not self.is_forward_reference(reference):
             return ""
-        channel_id = self.field_value(reference, "channel_id")
-        message_id = self.field_value(reference, "message_id")
-        if not channel_id or not message_id:
-            return ""
 
-        channel = self.bot.get_channel(channel_id)
-        if channel is None:
-            try:
-                channel = await self.bot.fetch_channel(channel_id)
-            except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-                return ""
-
-        fetch_message = getattr(channel, "fetch_message", None)
-        if fetch_message is None:
-            return ""
-
-        try:
-            forwarded_message = await fetch_message(message_id)
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-            return ""
-
-        return self.message_search_content(forwarded_message)
+        content, _error = await self.fetch_referenced_message_content(message)
+        return content
 
     async def message_search_content_with_forward_fetch(self, message: discord.Message) -> str:
         if not self.has_message_content_intent():
@@ -526,10 +625,36 @@ class DoxxingDetector(commands.Cog):
             )
             await self.send_log_embed(embed, getattr(message, "guild", None))
 
-        fetched_content = await self.fetch_forwarded_message_content(message)
+        fetched_content = ""
+        if self.needs_reference_fetch_for_scan(message):
+            fetched_content, _error = await self.fetch_referenced_message_content(message)
         searchable_content = "\n".join(part for part in [content, fetched_content] if part)
         await self.log_forward_debug(message, searchable_content)
         return searchable_content
+
+    async def unresolved_reference_error(self, message: discord.Message) -> str | None:
+        if not self.needs_reference_fetch_for_scan(message):
+            return None
+        if self.has_visible_message_content(message):
+            return None
+
+        fetched_content, error = await self.fetch_referenced_message_content(message)
+        if fetched_content or error is None:
+            return None
+        return error
+
+    async def delete_unscannable_reference_message(self, message: discord.Message, error: str) -> None:
+        deleted = False
+        errors = [error]
+        try:
+            await message.delete()
+            deleted = True
+        except discord.Forbidden:
+            errors.append("Missing permission to delete the message.")
+        except discord.HTTPException as exc:
+            errors.append(f"Failed to delete message: {exc}")
+
+        await self.log_unscannable_reference(message, deleted, "; ".join(errors))
 
     @staticmethod
     def has_timeout_exempt_role(member: discord.Member) -> bool:
@@ -586,6 +711,44 @@ class DoxxingDetector(commands.Cog):
         except discord.HTTPException:
             pass
 
+    async def log_unscannable_reference(
+        self,
+        message: discord.Message,
+        deleted: bool,
+        error: str,
+    ):
+        guild = message.guild
+        if guild is None:
+            return
+
+        log_channel = self.get_log_channel(guild)
+        if log_channel is None:
+            return
+
+        reference = self.field_value(message, "reference")
+        channel = self.field_value(message, "channel")
+        embed = discord.Embed(
+            title="Unscannable referenced message removed",
+            description=(
+                "A message with no visible content referenced another message, "
+                "but the referenced message could not be loaded for scanning."
+            ),
+            color=discord.Color.orange(),
+            timestamp=discord.utils.utcnow(),
+        )
+        embed.add_field(name="User", value=f"{message.author.mention} (`{message.author.id}`)", inline=False)
+        embed.add_field(name="Channel", value=self.field_value(channel, "mention", str(self.field_value(channel, "id", ""))), inline=True)
+        embed.add_field(name="Deleted", value="Yes" if deleted else "No", inline=True)
+        embed.add_field(name="Reference type", value=str(self.field_value(reference, "type")), inline=True)
+        embed.add_field(name="Reference channel", value=str(self.field_value(reference, "channel_id")), inline=True)
+        embed.add_field(name="Reference message", value=str(self.field_value(reference, "message_id")), inline=True)
+        embed.add_field(name="Error", value=error[:1024], inline=False)
+
+        try:
+            await log_channel.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.guild is None:
@@ -600,6 +763,9 @@ class DoxxingDetector(commands.Cog):
         searchable_content = await self.message_search_content_with_forward_fetch(message)
         match_types = self.find_doxxing_types(searchable_content)
         if not match_types:
+            unresolved_reference_error = await self.unresolved_reference_error(message)
+            if unresolved_reference_error:
+                await self.delete_unscannable_reference_message(message, unresolved_reference_error)
             return
 
         deleted = False

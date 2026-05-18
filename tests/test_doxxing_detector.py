@@ -295,6 +295,179 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channel.fetched_message_id, 789)
         self.assertIn("address", DoxxingDetector.find_doxxing_types(searchable))
 
+    async def test_empty_unknown_reference_fetch_content_is_scanned(self):
+        class FakeChannel:
+            async def fetch_message(self, message_id):
+                self.fetched_message_id = message_id
+                return SimpleNamespace(
+                    content="my address is 123 Main Street",
+                    embeds=[],
+                    attachments=[],
+                    message_snapshots=[],
+                    reference=None,
+                )
+
+        channel = FakeChannel()
+        bot = SimpleNamespace(get_channel=lambda channel_id: channel)
+        detector = DoxxingDetector(bot)
+        guild = SimpleNamespace(text_channels=[channel], threads=[], channels=[])
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            channel=SimpleNamespace(id=456),
+            guild=guild,
+            reference=SimpleNamespace(
+                type=None,
+                channel_id=None,
+                message_id=789,
+                resolved=None,
+                cached_message=None,
+            ),
+        )
+
+        searchable = await detector.message_search_content_with_forward_fetch(message)
+
+        self.assertEqual(channel.fetched_message_id, 789)
+        self.assertIn("address", DoxxingDetector.find_doxxing_types(searchable))
+
+    async def test_empty_unknown_reference_searches_guild_channels(self):
+        class CurrentChannel:
+            id = 456
+
+        class OtherChannel:
+            id = 999
+
+            async def fetch_message(self, message_id):
+                self.fetched_message_id = message_id
+                return SimpleNamespace(
+                    content="email me at person@example.com",
+                    embeds=[],
+                    attachments=[],
+                    message_snapshots=[],
+                    reference=None,
+                )
+
+        other_channel = OtherChannel()
+        guild = SimpleNamespace(
+            text_channels=[SimpleNamespace(id=111), other_channel],
+            threads=[],
+            channels=[],
+        )
+        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            channel=CurrentChannel(),
+            guild=guild,
+            reference=SimpleNamespace(
+                type=None,
+                channel_id=None,
+                message_id=789,
+                resolved=None,
+                cached_message=None,
+            ),
+        )
+
+        searchable = await detector.message_search_content_with_forward_fetch(message)
+
+        self.assertEqual(other_channel.fetched_message_id, 789)
+        self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
+
+    async def test_empty_unknown_reference_reports_unresolved_when_unfetchable(self):
+        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        detector = DoxxingDetector(bot)
+        guild = SimpleNamespace(text_channels=[], threads=[], channels=[])
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            channel=SimpleNamespace(id=456),
+            guild=guild,
+            reference=SimpleNamespace(
+                type=None,
+                channel_id=None,
+                message_id=789,
+                resolved=None,
+                cached_message=None,
+            ),
+        )
+
+        error = await detector.unresolved_reference_error(message)
+
+        self.assertIn("was not found in any readable guild channel", error)
+
+    async def test_empty_unknown_reference_loaded_empty_message_is_not_unresolved(self):
+        class FakeChannel:
+            id = 456
+
+            async def fetch_message(self, message_id):
+                return SimpleNamespace(
+                    content="",
+                    embeds=[],
+                    attachments=[],
+                    message_snapshots=[],
+                    reference=None,
+                )
+
+        channel = FakeChannel()
+        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        detector = DoxxingDetector(bot)
+        guild = SimpleNamespace(text_channels=[channel], threads=[], channels=[])
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            channel=SimpleNamespace(id=111),
+            guild=guild,
+            reference=SimpleNamespace(
+                type=None,
+                channel_id=None,
+                message_id=789,
+                resolved=None,
+                cached_message=None,
+            ),
+        )
+
+        error = await detector.unresolved_reference_error(message)
+
+        self.assertIsNone(error)
+
+    async def test_delete_unscannable_reference_message_deletes_and_logs(self):
+        sent_embeds = []
+
+        async def send_log(embed):
+            sent_embeds.append(embed)
+
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        log_channel = SimpleNamespace(send=send_log)
+        guild = SimpleNamespace(get_channel=lambda channel_id: log_channel)
+        bot = SimpleNamespace(get_channel=lambda channel_id: log_channel)
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=guild,
+            author=SimpleNamespace(mention="@user", id=123),
+            channel=SimpleNamespace(mention="#general", id=456),
+            reference=SimpleNamespace(type=None, channel_id=456, message_id=789),
+            delete=delete_message,
+        )
+
+        await detector.delete_unscannable_reference_message(message, "not fetchable")
+
+        self.assertEqual(deleted, [True])
+        self.assertEqual(len(sent_embeds), 1)
+        self.assertEqual(sent_embeds[0].title, "Unscannable referenced message removed")
+
 
 if __name__ == "__main__":
     unittest.main()
