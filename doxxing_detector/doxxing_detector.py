@@ -150,6 +150,93 @@ class DoxxingDetector(commands.Cog):
         except discord.HTTPException:
             pass
 
+    @staticmethod
+    def compact_text(content: str | None, limit: int = 260) -> str:
+        if not content:
+            return ""
+        compacted = " ".join(str(content).split())
+        if len(compacted) <= limit:
+            return compacted
+        return f"{compacted[:limit - 3]}..."
+
+    @staticmethod
+    async def send_text_chunks(ctx: commands.Context, content: str):
+        chunk_limit = 1900
+        chunks = [content[index:index + chunk_limit] for index in range(0, len(content), chunk_limit)]
+        for chunk in chunks:
+            await ctx.send(f"```text\n{chunk.replace('```', '` ` `')}\n```")
+
+    def forward_debug_report_for_message(self, message: discord.Message, index: int) -> str:
+        snapshots = self.forward_snapshots(message)
+        raw_snapshots = self.sequence_field(message, "message_snapshots")
+        reference = self.field_value(message, "reference")
+        lines = [
+            f"#{index} message_id={message.id}",
+            f"author={message.author} author_id={getattr(message.author, 'id', None)} bot={getattr(message.author, 'bot', None)}",
+            f"channel_id={getattr(message.channel, 'id', None)} type={getattr(message, 'type', None)}",
+            f"content_len={len(message.content or '')} content={self.compact_text(message.content)!r}",
+            f"embeds={len(message.embeds or [])} attachments={len(message.attachments or [])}",
+            f"reference_type={self.field_value(reference, 'type')} reference_message_id={self.field_value(reference, 'message_id')}",
+            f"message_snapshots_attr_present={hasattr(message, 'message_snapshots')}",
+            f"raw_snapshot_count={len(raw_snapshots)} normalized_snapshot_count={len(snapshots)}",
+        ]
+
+        if not snapshots:
+            lines.append("snapshots=NONE")
+            return "\n".join(lines)
+
+        for snapshot_index, snapshot in enumerate(snapshots, start=1):
+            snapshot_content = self.field_value(snapshot, "content", "")
+            snapshot_embeds = self.sequence_field(snapshot, "embeds")
+            snapshot_attachments = self.sequence_field(snapshot, "attachments")
+            lines.extend(
+                [
+                    f"snapshot_{snapshot_index}_type={self.field_value(snapshot, 'type')}",
+                    f"snapshot_{snapshot_index}_content_len={len(snapshot_content or '')}",
+                    f"snapshot_{snapshot_index}_content={self.compact_text(snapshot_content)!r}",
+                    f"snapshot_{snapshot_index}_embeds={len(snapshot_embeds)} attachments={len(snapshot_attachments)}",
+                ]
+            )
+            for embed_index, embed in enumerate(snapshot_embeds, start=1):
+                lines.append(
+                    f"snapshot_{snapshot_index}_embed_{embed_index}_text={self.compact_text(self.embed_text(embed))!r}"
+                )
+            for attachment_index, attachment in enumerate(snapshot_attachments, start=1):
+                lines.append(
+                    f"snapshot_{snapshot_index}_attachment_{attachment_index}_text={self.compact_text(self.attachment_text(attachment))!r}"
+                )
+
+        return "\n".join(lines)
+
+    @commands.command(name="scanforwardlogs")
+    @commands.has_permissions(manage_messages=True)
+    async def scan_forward_logs(self, ctx: commands.Context, limit: int = 5):
+        """Dump forward snapshot fields from recent messages in the configured log channel."""
+        limit = max(1, min(limit, 10))
+        log_channel = self.get_log_channel(ctx.guild)
+        if log_channel is None or not hasattr(log_channel, "history"):
+            await ctx.send(f"Log channel `{LOG_CHANNEL_ID}` was not found or cannot be read.")
+            return
+
+        try:
+            messages = [message async for message in log_channel.history(limit=limit)]
+        except discord.Forbidden:
+            await ctx.send(f"I do not have permission to read message history in `{LOG_CHANNEL_ID}`.")
+            return
+        except discord.HTTPException as exc:
+            await ctx.send(f"Failed to read log channel history: `{exc}`")
+            return
+
+        if not messages:
+            await ctx.send(f"No recent messages found in `{LOG_CHANNEL_ID}`.")
+            return
+
+        report = "\n\n".join(
+            self.forward_debug_report_for_message(message, index)
+            for index, message in enumerate(messages, start=1)
+        )
+        await self.send_text_chunks(ctx, report)
+
     async def warn_missing_message_content_intent(self, guild: discord.Guild | None = None):
         if self._warned_missing_message_content_intent:
             return
