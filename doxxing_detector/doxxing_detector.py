@@ -8,10 +8,7 @@ from discord.ext import commands
 
 TIMEOUT_DURATION = datetime.timedelta(hours=3)
 LOG_CHANNEL_ID = 1497340655423324309
-ALLOWED_LOG_REFERENCE_CHANNEL_IDS = {
-    1494751503834022040,
-    1450884163426189372,
-}
+FORWARD_SOURCE_GUILD_ID = 1229546498677801070
 AUTO_FLAG_DM = (
     "Your message was automatically flagged by the moderation bot for possible private personal information "
     "and was removed. If this was a mistake, please message Mod Mail so the moderation team can review it."
@@ -310,22 +307,63 @@ class DoxxingDetector(commands.Cog):
         )
 
     @classmethod
-    def has_allowed_log_reference_channel(cls, message: discord.Message) -> bool:
+    def forward_reference_channel_id(cls, message: discord.Message) -> int | None:
         reference = cls.field_value(message, "reference")
-        channel_id = cls.field_value(reference, "channel_id") if reference is not None else None
+        if reference is None or not cls.is_forward_reference(reference):
+            return None
+
+        channel_id = cls.field_value(reference, "channel_id")
         try:
-            channel_id = int(channel_id)
+            return int(channel_id)
         except (TypeError, ValueError):
-            return False
-        return channel_id in ALLOWED_LOG_REFERENCE_CHANNEL_IDS
+            return None
 
     @classmethod
-    def should_delete_from_log_channel(cls, message: discord.Message) -> bool:
-        channel = cls.field_value(message, "channel")
-        return (
-            cls.field_value(channel, "id") == LOG_CHANNEL_ID
-            and not cls.has_allowed_log_reference_channel(message)
-        )
+    def guild_has_channel_id(cls, guild, channel_id: int) -> bool:
+        for method_name in ["get_channel_or_thread", "get_channel", "get_thread"]:
+            method = getattr(guild, method_name, None)
+            if method is not None and method(channel_id) is not None:
+                return True
+
+        channels = []
+        channels.extend(cls.sequence_field(guild, "text_channels"))
+        channels.extend(cls.sequence_field(guild, "threads"))
+        channels.extend(cls.sequence_field(guild, "channels"))
+        return any(cls.field_value(channel, "id") == channel_id for channel in channels)
+
+    def get_forward_source_guild(self, message: discord.Message):
+        guild = self.field_value(message, "guild")
+        if self.field_value(guild, "id") == FORWARD_SOURCE_GUILD_ID:
+            return guild
+
+        get_guild = getattr(self.bot, "get_guild", None)
+        return get_guild(FORWARD_SOURCE_GUILD_ID) if get_guild is not None else None
+
+    async def should_delete_forward_from_outside_server(self, message: discord.Message) -> bool:
+        channel_id = self.forward_reference_channel_id(message)
+        if channel_id is None:
+            return False
+
+        guild = self.get_forward_source_guild(message)
+        if guild is not None and self.guild_has_channel_id(guild, channel_id):
+            return False
+
+        channel = self.bot.get_channel(channel_id)
+        if channel is not None:
+            channel_guild = self.field_value(channel, "guild")
+            return self.field_value(channel_guild, "id") != FORWARD_SOURCE_GUILD_ID
+
+        fetch_channel = getattr(self.bot, "fetch_channel", None)
+        if fetch_channel is None:
+            return True
+
+        try:
+            channel = await fetch_channel(channel_id)
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            return True
+
+        channel_guild = self.field_value(channel, "guild")
+        return self.field_value(channel_guild, "id") != FORWARD_SOURCE_GUILD_ID
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
         reference = self.field_value(message, "reference")
@@ -873,7 +911,7 @@ class DoxxingDetector(commands.Cog):
 
         deleted = False
         delete_error = None
-        if self.should_delete_from_log_channel(message):
+        if await self.should_delete_forward_from_outside_server(message):
             deleted, delete_error = await self.delete_message(message)
             searchable_content = await self.message_search_content_with_forward_fetch(message)
             match_types = self.find_doxxing_types(searchable_content)
