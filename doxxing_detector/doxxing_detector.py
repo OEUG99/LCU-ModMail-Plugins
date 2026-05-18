@@ -346,12 +346,16 @@ class DoxxingDetector(commands.Cog):
         return get_guild(FORWARD_SOURCE_GUILD_ID) if get_guild is not None else None
 
     async def should_delete_forward_from_outside_server(self, message: discord.Message) -> bool:
-        channel_id = self.forward_reference_channel_id(message)
-        if channel_id is None:
+        reference = self.field_value(message, "reference")
+        if reference is None or not self.is_forward_reference(reference):
             return False
         author = self.field_value(message, "author")
         if self.has_always_delete_forward_role(author):
             return True
+
+        channel_id = self.forward_reference_channel_id(message)
+        if channel_id is None:
+            return False
         if self.has_timeout_exempt_role(author):
             return False
         if channel_id in EXEMPT_FORWARD_SOURCE_CHANNEL_IDS:

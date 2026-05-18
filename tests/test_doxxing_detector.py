@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import discord
 
 from doxxing_detector.doxxing_detector import (
+    ALWAYS_DELETE_FORWARD_ROLE_IDS,
     AUTO_FLAG_DM,
     DoxxingDetector,
     EXEMPT_FORWARD_SOURCE_CHANNEL_IDS,
@@ -255,6 +256,13 @@ class DoxxingDetectorTest(unittest.TestCase):
         )
 
         self.assertTrue(DoxxingDetector.has_timeout_exempt_role(member))
+
+    def test_member_with_always_delete_forward_role_is_detected(self):
+        member = SimpleNamespace(
+            roles=[SimpleNamespace(id=next(iter(ALWAYS_DELETE_FORWARD_ROLE_IDS)))],
+        )
+
+        self.assertTrue(DoxxingDetector.has_always_delete_forward_role(member))
 
     def test_forward_reference_channel_id_accepts_forward_reference(self):
         message = SimpleNamespace(
@@ -723,6 +731,93 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         await detector.on_message(message)
 
         self.assertEqual(deleted, [])
+
+    async def test_on_message_deletes_forward_from_always_delete_role_author(self):
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        exempt_channel_id = next(iter(EXEMPT_FORWARD_SOURCE_CHANNEL_IDS))
+        source_channel = SimpleNamespace(
+            id=exempt_channel_id,
+            guild=SimpleNamespace(id=FORWARD_SOURCE_GUILD_ID),
+        )
+        source_guild = SimpleNamespace(
+            id=FORWARD_SOURCE_GUILD_ID,
+            get_channel=lambda channel_id: source_channel if channel_id == source_channel.id else None,
+            text_channels=[],
+            threads=[],
+            channels=[],
+        )
+        bot = SimpleNamespace(
+            get_channel=lambda channel_id: source_channel if channel_id == source_channel.id else None,
+            get_guild=lambda guild_id: source_guild if guild_id == FORWARD_SOURCE_GUILD_ID else None,
+        )
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=999),
+            author=SimpleNamespace(
+                bot=False,
+                roles=[
+                    SimpleNamespace(id=next(iter(EXEMPT_ROLE_IDS))),
+                    SimpleNamespace(id=next(iter(ALWAYS_DELETE_FORWARD_ROLE_IDS))),
+                ],
+            ),
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            content="forwarded message wrapper",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(
+                type=discord.MessageReferenceType.forward,
+                channel_id=source_channel.id,
+                message_id=123,
+                resolved=None,
+                cached_message=None,
+            ),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [True])
+
+    async def test_on_message_deletes_always_delete_role_forward_without_channel_id(self):
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        bot = SimpleNamespace(
+            get_channel=lambda channel_id: None,
+            get_guild=lambda guild_id: None,
+        )
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=999),
+            author=SimpleNamespace(
+                bot=False,
+                roles=[SimpleNamespace(id=next(iter(ALWAYS_DELETE_FORWARD_ROLE_IDS)))],
+            ),
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            content="forwarded message wrapper",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(
+                type=discord.MessageReferenceType.forward,
+                channel_id=None,
+                message_id=123,
+                resolved=None,
+                cached_message=None,
+            ),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [True])
 
     async def test_on_message_deletes_forward_from_outside_source_server(self):
         deleted = []
