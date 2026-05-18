@@ -315,7 +315,7 @@ class DoxxingDetector(commands.Cog):
     @classmethod
     def forward_reference_channel_id(cls, message: discord.Message) -> int | None:
         reference = cls.field_value(message, "reference")
-        if reference is None or not cls.is_forward_reference(reference):
+        if reference is None or not cls.field_value(reference, "message_id"):
             return None
 
         channel_id = cls.field_value(reference, "channel_id")
@@ -323,6 +323,11 @@ class DoxxingDetector(commands.Cog):
             return int(channel_id)
         except (TypeError, ValueError):
             return None
+
+    @classmethod
+    def has_forward_like_reference(cls, message: discord.Message) -> bool:
+        reference = cls.field_value(message, "reference")
+        return bool(reference is not None and cls.field_value(reference, "message_id"))
 
     @classmethod
     def guild_has_channel_id(cls, guild, channel_id: int) -> bool:
@@ -346,8 +351,7 @@ class DoxxingDetector(commands.Cog):
         return get_guild(FORWARD_SOURCE_GUILD_ID) if get_guild is not None else None
 
     async def should_delete_forward_from_outside_server(self, message: discord.Message) -> bool:
-        reference = self.field_value(message, "reference")
-        if reference is None or not self.is_forward_reference(reference):
+        if not self.has_forward_like_reference(message):
             return False
         author = self.field_value(message, "author")
         if self.has_always_delete_forward_role(author):

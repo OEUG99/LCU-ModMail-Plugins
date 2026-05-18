@@ -264,11 +264,12 @@ class DoxxingDetectorTest(unittest.TestCase):
 
         self.assertTrue(DoxxingDetector.has_always_delete_forward_role(member))
 
-    def test_forward_reference_channel_id_accepts_forward_reference(self):
+    def test_forward_reference_channel_id_accepts_reference_message_id(self):
         message = SimpleNamespace(
             reference=SimpleNamespace(
-                type=discord.MessageReferenceType.forward,
+                type=None,
                 channel_id=1494751503834022040,
+                message_id=1506068960481640590,
             ),
         )
 
@@ -281,6 +282,7 @@ class DoxxingDetectorTest(unittest.TestCase):
         )
 
         self.assertIsNone(DoxxingDetector.forward_reference_channel_id(message))
+        self.assertFalse(DoxxingDetector.has_forward_like_reference(message))
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
@@ -809,6 +811,42 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
                 type=discord.MessageReferenceType.forward,
                 channel_id=None,
                 message_id=123,
+                resolved=None,
+                cached_message=None,
+            ),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [True])
+
+    async def test_on_message_deletes_always_delete_role_reference_type_none_forward(self):
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        bot = SimpleNamespace(
+            get_channel=lambda channel_id: None,
+            get_guild=lambda guild_id: None,
+        )
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=999),
+            author=SimpleNamespace(
+                bot=False,
+                roles=[SimpleNamespace(id=next(iter(ALWAYS_DELETE_FORWARD_ROLE_IDS)))],
+            ),
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(
+                type=None,
+                channel_id=1440752809216577689,
+                message_id=1506068960481640590,
                 resolved=None,
                 cached_message=None,
             ),
