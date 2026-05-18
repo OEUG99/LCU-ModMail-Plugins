@@ -318,6 +318,52 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(searchable, "")
         self.assertIn("no reference_channel_id", error)
 
+    async def test_reference_without_channel_uses_refetched_message_snapshots(self):
+        class FakeChannel:
+            id = 456
+
+            async def fetch_message(self, message_id):
+                self.fetched_message_id = message_id
+                return SimpleNamespace(
+                    content="",
+                    embeds=[],
+                    attachments=[],
+                    message_snapshots=[
+                        SimpleNamespace(
+                            content="my number is 555-123-4567",
+                            embeds=[],
+                            attachments=[],
+                        ),
+                    ],
+                    reference=None,
+                )
+
+        channel = FakeChannel()
+        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            id=123,
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            channel=channel,
+            reference=SimpleNamespace(
+                type=None,
+                channel_id=None,
+                message_id=789,
+                resolved=None,
+                cached_message=None,
+            ),
+        )
+
+        searchable = await detector.message_search_content_with_forward_fetch(message)
+        error = await detector.unresolved_reference_error(message)
+
+        self.assertEqual(channel.fetched_message_id, 123)
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(searchable))
+        self.assertIsNone(error)
+
     async def test_reference_with_wrong_channel_id_falls_back_to_guild_search(self):
         class OtherChannel:
             id = 999
