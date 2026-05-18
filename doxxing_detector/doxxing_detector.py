@@ -23,6 +23,9 @@ EXEMPT_ROLE_IDS = {
     1426719967914491925,
     1372741169385050112,
 }
+ALWAYS_DELETE_FORWARD_ROLE_IDS = {
+    1481877137118990420,
+}
 
 EMAIL_RE = re.compile(
     r"(?<![\w.+-])"
@@ -347,6 +350,8 @@ class DoxxingDetector(commands.Cog):
         if channel_id is None:
             return False
         author = self.field_value(message, "author")
+        if self.has_always_delete_forward_role(author):
+            return True
         if self.has_timeout_exempt_role(author):
             return False
         if channel_id in EXEMPT_FORWARD_SOURCE_CHANNEL_IDS:
@@ -822,6 +827,10 @@ class DoxxingDetector(commands.Cog):
     @staticmethod
     def has_timeout_exempt_role(member: discord.Member) -> bool:
         return any(role.id in EXEMPT_ROLE_IDS for role in getattr(member, "roles", []))
+
+    @staticmethod
+    def has_always_delete_forward_role(member: discord.Member) -> bool:
+        return any(role.id in ALWAYS_DELETE_FORWARD_ROLE_IDS for role in getattr(member, "roles", []))
 
     @staticmethod
     async def notify_author(message: discord.Message) -> str | None:
