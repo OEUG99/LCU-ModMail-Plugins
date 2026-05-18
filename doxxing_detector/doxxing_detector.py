@@ -273,9 +273,20 @@ class DoxxingDetector(commands.Cog):
         reference = cls.field_value(message, "reference")
         if reference is None or not cls.field_value(reference, "message_id"):
             return False
+        if not cls.field_value(reference, "channel_id"):
+            return False
         if cls.is_forward_reference(reference):
             return True
         return not cls.has_visible_message_content(message) and not cls.forward_snapshots(message)
+
+    @classmethod
+    def has_message_id_without_reference_channel(cls, message: discord.Message) -> bool:
+        reference = cls.field_value(message, "reference")
+        return bool(
+            reference is not None
+            and cls.field_value(reference, "message_id")
+            and not cls.field_value(reference, "channel_id")
+        )
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
         reference = self.field_value(message, "reference")
@@ -648,6 +659,12 @@ class DoxxingDetector(commands.Cog):
         return searchable_content
 
     async def unresolved_reference_error(self, message: discord.Message) -> str | None:
+        if self.has_message_id_without_reference_channel(message):
+            reference = self.field_value(message, "reference")
+            return (
+                f"Message has reference_message_id `{self.field_value(reference, 'message_id')}` "
+                "but no reference_channel_id."
+            )
         if not self.needs_reference_fetch_for_scan(message):
             return None
         if self.has_visible_message_content(message):

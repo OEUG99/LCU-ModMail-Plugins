@@ -295,66 +295,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channel.fetched_message_id, 789)
         self.assertIn("address", DoxxingDetector.find_doxxing_types(searchable))
 
-    async def test_empty_unknown_reference_fetch_content_is_scanned(self):
-        class FakeChannel:
-            async def fetch_message(self, message_id):
-                self.fetched_message_id = message_id
-                return SimpleNamespace(
-                    content="my address is 123 Main Street",
-                    embeds=[],
-                    attachments=[],
-                    message_snapshots=[],
-                    reference=None,
-                )
-
-        channel = FakeChannel()
-        bot = SimpleNamespace(get_channel=lambda channel_id: channel)
-        detector = DoxxingDetector(bot)
-        guild = SimpleNamespace(text_channels=[channel], threads=[], channels=[])
-        message = SimpleNamespace(
-            content="",
-            embeds=[],
-            attachments=[],
-            message_snapshots=[],
-            channel=SimpleNamespace(id=456),
-            guild=guild,
-            reference=SimpleNamespace(
-                type=None,
-                channel_id=None,
-                message_id=789,
-                resolved=None,
-                cached_message=None,
-            ),
-        )
-
-        searchable = await detector.message_search_content_with_forward_fetch(message)
-
-        self.assertEqual(channel.fetched_message_id, 789)
-        self.assertIn("address", DoxxingDetector.find_doxxing_types(searchable))
-
-    async def test_empty_unknown_reference_searches_guild_channels(self):
-        class CurrentChannel:
-            id = 456
-
-        class OtherChannel:
-            id = 999
-
-            async def fetch_message(self, message_id):
-                self.fetched_message_id = message_id
-                return SimpleNamespace(
-                    content="email me at person@example.com",
-                    embeds=[],
-                    attachments=[],
-                    message_snapshots=[],
-                    reference=None,
-                )
-
-        other_channel = OtherChannel()
-        guild = SimpleNamespace(
-            text_channels=[SimpleNamespace(id=111), other_channel],
-            threads=[],
-            channels=[],
-        )
+    async def test_reference_message_id_without_channel_is_unresolved(self):
         bot = SimpleNamespace(get_channel=lambda channel_id: None)
         detector = DoxxingDetector(bot)
         message = SimpleNamespace(
@@ -362,8 +303,6 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
             embeds=[],
             attachments=[],
             message_snapshots=[],
-            channel=CurrentChannel(),
-            guild=guild,
             reference=SimpleNamespace(
                 type=None,
                 channel_id=None,
@@ -374,9 +313,10 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         )
 
         searchable = await detector.message_search_content_with_forward_fetch(message)
+        error = await detector.unresolved_reference_error(message)
 
-        self.assertEqual(other_channel.fetched_message_id, 789)
-        self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
+        self.assertEqual(searchable, "")
+        self.assertIn("no reference_channel_id", error)
 
     async def test_reference_with_wrong_channel_id_falls_back_to_guild_search(self):
         class OtherChannel:
@@ -421,7 +361,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(other_channel.fetched_message_id, 789)
         self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
 
-    async def test_empty_unknown_reference_reports_unresolved_when_unfetchable(self):
+    async def test_reference_with_channel_reports_unresolved_when_unfetchable(self):
         bot = SimpleNamespace(get_channel=lambda channel_id: None)
         detector = DoxxingDetector(bot)
         guild = SimpleNamespace(text_channels=[], threads=[], channels=[])
@@ -434,7 +374,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
             guild=guild,
             reference=SimpleNamespace(
                 type=None,
-                channel_id=None,
+                channel_id=456,
                 message_id=789,
                 resolved=None,
                 cached_message=None,
@@ -443,9 +383,9 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
 
         error = await detector.unresolved_reference_error(message)
 
-        self.assertIn("was not found in any readable guild channel", error)
+        self.assertIn("was not found in any other readable guild channel", error)
 
-    async def test_empty_unknown_reference_loaded_empty_message_is_not_unresolved(self):
+    async def test_reference_with_channel_loaded_empty_message_is_not_unresolved(self):
         class FakeChannel:
             id = 456
 
@@ -459,7 +399,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
                 )
 
         channel = FakeChannel()
-        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        bot = SimpleNamespace(get_channel=lambda channel_id: channel)
         detector = DoxxingDetector(bot)
         guild = SimpleNamespace(text_channels=[channel], threads=[], channels=[])
         message = SimpleNamespace(
@@ -471,7 +411,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
             guild=guild,
             reference=SimpleNamespace(
                 type=None,
-                channel_id=None,
+                channel_id=456,
                 message_id=789,
                 resolved=None,
                 cached_message=None,
