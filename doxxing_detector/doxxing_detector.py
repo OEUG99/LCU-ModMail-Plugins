@@ -9,6 +9,9 @@ from discord.ext import commands
 TIMEOUT_DURATION = datetime.timedelta(hours=3)
 LOG_CHANNEL_ID = 1497340655423324309
 FORWARD_SOURCE_GUILD_ID = 1229546498677801070
+EXEMPT_FORWARD_SOURCE_CHANNEL_IDS = {
+    1450884163426189372,
+}
 AUTO_FLAG_DM = (
     "Your message was automatically flagged by the moderation bot for possible private personal information "
     "and was removed. If this was a mistake, please message Mod Mail so the moderation team can review it."
@@ -342,6 +345,11 @@ class DoxxingDetector(commands.Cog):
     async def should_delete_forward_from_outside_server(self, message: discord.Message) -> bool:
         channel_id = self.forward_reference_channel_id(message)
         if channel_id is None:
+            return False
+        author = self.field_value(message, "author")
+        if self.has_timeout_exempt_role(author):
+            return False
+        if channel_id in EXEMPT_FORWARD_SOURCE_CHANNEL_IDS:
             return False
 
         guild = self.get_forward_source_guild(message)
@@ -813,7 +821,7 @@ class DoxxingDetector(commands.Cog):
 
     @staticmethod
     def has_timeout_exempt_role(member: discord.Member) -> bool:
-        return any(role.id in EXEMPT_ROLE_IDS for role in member.roles)
+        return any(role.id in EXEMPT_ROLE_IDS for role in getattr(member, "roles", []))
 
     @staticmethod
     async def notify_author(message: discord.Message) -> str | None:

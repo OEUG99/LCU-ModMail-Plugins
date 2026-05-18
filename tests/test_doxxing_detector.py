@@ -7,6 +7,7 @@ import discord
 from doxxing_detector.doxxing_detector import (
     AUTO_FLAG_DM,
     DoxxingDetector,
+    EXEMPT_FORWARD_SOURCE_CHANNEL_IDS,
     EXEMPT_ROLE_IDS,
     FORWARD_SOURCE_GUILD_ID,
     LOG_CHANNEL_ID,
@@ -638,6 +639,80 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
             reference=SimpleNamespace(
                 type=discord.MessageReferenceType.forward,
                 channel_id=source_channel.id,
+                message_id=123,
+                resolved=None,
+                cached_message=None,
+            ),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [])
+
+    async def test_on_message_ignores_forward_from_exempt_source_channel(self):
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        exempt_channel_id = next(iter(EXEMPT_FORWARD_SOURCE_CHANNEL_IDS))
+        bot = SimpleNamespace(
+            get_channel=lambda channel_id: None,
+            get_guild=lambda guild_id: None,
+        )
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=999),
+            author=SimpleNamespace(bot=True),
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            content="forwarded message wrapper",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(
+                type=discord.MessageReferenceType.forward,
+                channel_id=exempt_channel_id,
+                message_id=123,
+                resolved=None,
+                cached_message=None,
+            ),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [])
+
+    async def test_on_message_ignores_forward_from_exempt_role_author(self):
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        outside_channel = SimpleNamespace(
+            id=123,
+            guild=SimpleNamespace(id=999),
+        )
+        bot = SimpleNamespace(
+            get_channel=lambda channel_id: outside_channel if channel_id == outside_channel.id else None,
+            get_guild=lambda guild_id: None,
+        )
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=999),
+            author=SimpleNamespace(
+                bot=False,
+                roles=[SimpleNamespace(id=next(iter(EXEMPT_ROLE_IDS)))],
+            ),
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            content="forwarded message wrapper",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(
+                type=discord.MessageReferenceType.forward,
+                channel_id=outside_channel.id,
                 message_id=123,
                 resolved=None,
                 cached_message=None,
