@@ -131,6 +131,25 @@ class DoxxingDetector(commands.Cog):
 
     def __init__(self, bot):
         self.bot = bot
+        self._warned_missing_message_content_intent = False
+        self._warned_empty_forward_snapshot_content = False
+
+    def warn_missing_message_content_intent(self):
+        if self._warned_missing_message_content_intent:
+            return
+        self._warned_missing_message_content_intent = True
+        print(
+            "DoxxingDetector warning: message_content intent is disabled. "
+            "Discord will hide normal message text and forwarded snapshot content."
+        )
+
+    def has_message_content_intent(self) -> bool:
+        return getattr(getattr(self.bot, "intents", None), "message_content", True)
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if not self.has_message_content_intent():
+            self.warn_missing_message_content_intent()
 
     @staticmethod
     def is_likely_address_match(match: re.Match[str]) -> bool:
@@ -215,6 +234,15 @@ class DoxxingDetector(commands.Cog):
         )
         return "\n".join(part for part in parts if part)
 
+    @staticmethod
+    def is_forward_reference(reference) -> bool:
+        reference_type = getattr(reference, "type", None)
+        return (
+            reference_type is discord.MessageReferenceType.forward
+            or reference_type == discord.MessageReferenceType.forward
+            or reference_type == discord.MessageReferenceType.forward.value
+        )
+
     @classmethod
     def message_search_content(cls, message: discord.Message, seen: set[int] | None = None) -> str:
         if seen is None:
@@ -236,7 +264,7 @@ class DoxxingDetector(commands.Cog):
                 parts.append(cls.embed_text(embed))
 
         reference = getattr(message, "reference", None)
-        if reference is not None and getattr(reference, "type", None) is discord.MessageReferenceType.forward:
+        if reference is not None and cls.is_forward_reference(reference):
             resolved = getattr(reference, "resolved", None)
             if isinstance(resolved, discord.Message):
                 parts.append(cls.message_search_content(resolved, seen))
@@ -249,7 +277,7 @@ class DoxxingDetector(commands.Cog):
 
     async def fetch_forwarded_message_content(self, message: discord.Message) -> str:
         reference = getattr(message, "reference", None)
-        if reference is None or getattr(reference, "type", None) is not discord.MessageReferenceType.forward:
+        if reference is None or not self.is_forward_reference(reference):
             return ""
         if not reference.channel_id or not reference.message_id:
             return ""
@@ -273,7 +301,23 @@ class DoxxingDetector(commands.Cog):
         return self.message_search_content(forwarded_message)
 
     async def message_search_content_with_forward_fetch(self, message: discord.Message) -> str:
+        if not self.has_message_content_intent():
+            self.warn_missing_message_content_intent()
+
         content = self.message_search_content(message)
+        snapshots = getattr(message, "message_snapshots", [])
+        if (
+            snapshots
+            and not any(getattr(snapshot, "content", "") for snapshot in snapshots)
+            and not self._warned_empty_forward_snapshot_content
+        ):
+            self._warned_empty_forward_snapshot_content = True
+            print(
+                "DoxxingDetector warning: received forwarded message snapshots, "
+                "but Discord sent empty snapshot content. Confirm the Message Content "
+                "privileged intent is enabled in code and in the Discord Developer Portal."
+            )
+
         fetched_content = await self.fetch_forwarded_message_content(message)
         return "\n".join(part for part in [content, fetched_content] if part)
 

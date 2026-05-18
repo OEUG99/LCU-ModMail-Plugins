@@ -140,6 +140,18 @@ class DoxxingDetectorTest(unittest.TestCase):
 
         self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
 
+    def test_forward_reference_detection_accepts_enum_and_raw_value(self):
+        self.assertTrue(
+            DoxxingDetector.is_forward_reference(
+                SimpleNamespace(type=discord.MessageReferenceType.forward)
+            )
+        )
+        self.assertTrue(
+            DoxxingDetector.is_forward_reference(
+                SimpleNamespace(type=discord.MessageReferenceType.forward.value)
+            )
+        )
+
     def test_member_with_exempt_role_is_timeout_exempt(self):
         member = SimpleNamespace(
             guild_permissions=SimpleNamespace(administrator=False),
