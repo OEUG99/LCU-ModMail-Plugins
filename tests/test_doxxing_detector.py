@@ -107,6 +107,37 @@ class DoxxingDetectorTest(unittest.TestCase):
         self.assertIn("address", DoxxingDetector.find_doxxing_types("456 River Way"))
         self.assertIn("address", DoxxingDetector.find_doxxing_types("45 River Way"))
 
+    def test_search_content_includes_forwarded_message_snapshot_text(self):
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            message_snapshots=[
+                SimpleNamespace(content="my number is 555-123-4567", embeds=[]),
+            ],
+        )
+
+        searchable = DoxxingDetector.message_search_content(message)
+
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(searchable))
+
+    def test_search_content_includes_forwarded_embed_text(self):
+        embed = SimpleNamespace(
+            title="Contact",
+            description="email me at person@example.com",
+            fields=[],
+        )
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            message_snapshots=[
+                SimpleNamespace(content="", embeds=[embed]),
+            ],
+        )
+
+        searchable = DoxxingDetector.message_search_content(message)
+
+        self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
+
     def test_member_with_exempt_role_is_timeout_exempt(self):
         member = SimpleNamespace(
             guild_permissions=SimpleNamespace(administrator=False),

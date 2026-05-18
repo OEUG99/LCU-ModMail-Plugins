@@ -200,6 +200,36 @@ class DoxxingDetector(commands.Cog):
         return f"||{escaped[:1020]}||"
 
     @staticmethod
+    def embed_text(embed: discord.Embed) -> str:
+        parts = [
+            getattr(embed, "title", None),
+            getattr(embed, "description", None),
+        ]
+        parts.extend(
+            value
+            for value in (
+                getattr(field, "value", None)
+                for field in getattr(embed, "fields", [])
+            )
+            if value
+        )
+        return "\n".join(part for part in parts if part)
+
+    @classmethod
+    def message_search_content(cls, message: discord.Message) -> str:
+        parts = [message.content]
+
+        for embed in getattr(message, "embeds", []):
+            parts.append(cls.embed_text(embed))
+
+        for snapshot in getattr(message, "message_snapshots", []):
+            parts.append(getattr(snapshot, "content", ""))
+            for embed in getattr(snapshot, "embeds", []):
+                parts.append(cls.embed_text(embed))
+
+        return "\n".join(part for part in parts if part)
+
+    @staticmethod
     def has_timeout_exempt_role(member: discord.Member) -> bool:
         return any(role.id in EXEMPT_ROLE_IDS for role in member.roles)
 
@@ -245,7 +275,7 @@ class DoxxingDetector(commands.Cog):
         embed.add_field(name="DM sent", value="Yes" if dm_sent else "No", inline=True)
         embed.add_field(
             name="Message",
-            value=self.spoiler_text(message.content),
+            value=self.spoiler_text(self.message_search_content(message)),
             inline=False,
         )
         if error:
@@ -263,7 +293,8 @@ class DoxxingDetector(commands.Cog):
         if not isinstance(message.author, discord.Member):
             return
 
-        match_types = self.find_doxxing_types(message.content)
+        searchable_content = self.message_search_content(message)
+        match_types = self.find_doxxing_types(searchable_content)
         if not match_types:
             return
 
