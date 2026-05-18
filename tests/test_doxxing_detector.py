@@ -378,6 +378,49 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(other_channel.fetched_message_id, 789)
         self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
 
+    async def test_reference_with_wrong_channel_id_falls_back_to_guild_search(self):
+        class OtherChannel:
+            id = 999
+
+            async def fetch_message(self, message_id):
+                self.fetched_message_id = message_id
+                return SimpleNamespace(
+                    content="email me at person@example.com",
+                    embeds=[],
+                    attachments=[],
+                    message_snapshots=[],
+                    reference=None,
+                )
+
+        other_channel = OtherChannel()
+        guild = SimpleNamespace(
+            text_channels=[other_channel],
+            threads=[],
+            channels=[],
+        )
+        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            channel=SimpleNamespace(id=456),
+            guild=guild,
+            reference=SimpleNamespace(
+                type=None,
+                channel_id=456,
+                message_id=789,
+                resolved=None,
+                cached_message=None,
+            ),
+        )
+
+        searchable = await detector.message_search_content_with_forward_fetch(message)
+
+        self.assertEqual(other_channel.fetched_message_id, 789)
+        self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
+
     async def test_empty_unknown_reference_reports_unresolved_when_unfetchable(self):
         bot = SimpleNamespace(get_channel=lambda channel_id: None)
         detector = DoxxingDetector(bot)
