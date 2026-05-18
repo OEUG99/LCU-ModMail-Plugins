@@ -134,19 +134,41 @@ class DoxxingDetector(commands.Cog):
         self._warned_missing_message_content_intent = False
         self._warned_empty_forward_snapshot_content = False
 
-    def warn_missing_message_content_intent(self):
+    def get_log_channel(self, guild: discord.Guild | None = None):
+        log_channel = guild.get_channel(LOG_CHANNEL_ID) if guild is not None else None
+        if log_channel is None:
+            log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
+        return log_channel
+
+    async def send_log_embed(self, embed: discord.Embed, guild: discord.Guild | None = None):
+        log_channel = self.get_log_channel(guild)
+        if log_channel is None or not hasattr(log_channel, "send"):
+            return
+
+        try:
+            await log_channel.send(embed=embed)
+        except discord.HTTPException:
+            pass
+
+    async def warn_missing_message_content_intent(self, guild: discord.Guild | None = None):
         if self._warned_missing_message_content_intent:
             return
         self._warned_missing_message_content_intent = True
-        print(
-            "DoxxingDetector warning: message_content intent is disabled. "
-            "Discord will hide normal message text and forwarded snapshot content."
+        embed = discord.Embed(
+            title="Doxxing detector warning",
+            description=(
+                "`message_content` intent is disabled. Discord will hide normal "
+                "message text and forwarded snapshot content."
+            ),
+            color=discord.Color.orange(),
+            timestamp=discord.utils.utcnow(),
         )
+        await self.send_log_embed(embed, guild)
 
     def has_message_content_intent(self) -> bool:
         return getattr(getattr(self.bot, "intents", None), "message_content", True)
 
-    def log_forward_debug(self, message: discord.Message, searchable_content: str):
+    async def log_forward_debug(self, message: discord.Message, searchable_content: str):
         reference = getattr(message, "reference", None)
         snapshots = getattr(message, "message_snapshots", [])
         if reference is None and not snapshots:
@@ -160,21 +182,27 @@ class DoxxingDetector(commands.Cog):
             len(getattr(snapshot, "embeds", []) or [])
             for snapshot in snapshots
         ]
-        print(
-            "DoxxingDetector forward debug: "
-            f"message_id={getattr(message, 'id', None)} "
-            f"author_id={getattr(getattr(message, 'author', None), 'id', None)} "
-            f"reference_type={getattr(reference, 'type', None)} "
-            f"snapshots={len(snapshots)} "
-            f"snapshot_content_lengths={snapshot_lengths} "
-            f"snapshot_embed_counts={snapshot_embed_counts} "
-            f"searchable_length={len(searchable_content)}"
+        embed = discord.Embed(
+            title="Doxxing forward debug",
+            color=discord.Color.blurple(),
+            timestamp=discord.utils.utcnow(),
         )
+        embed.add_field(name="Message ID", value=str(getattr(message, "id", None)), inline=True)
+        embed.add_field(name="Author ID", value=str(getattr(getattr(message, "author", None), "id", None)), inline=True)
+        embed.add_field(name="Reference type", value=str(getattr(reference, "type", None)), inline=False)
+        embed.add_field(name="Snapshots", value=str(len(snapshots)), inline=True)
+        embed.add_field(name="Snapshot content lengths", value=str(snapshot_lengths), inline=True)
+        embed.add_field(name="Snapshot embed counts", value=str(snapshot_embed_counts), inline=True)
+        embed.add_field(name="Searchable length", value=str(len(searchable_content)), inline=True)
+        if searchable_content:
+            embed.add_field(name="Searchable content", value=self.spoiler_text(searchable_content), inline=False)
+
+        await self.send_log_embed(embed, getattr(message, "guild", None))
 
     @commands.Cog.listener()
     async def on_ready(self):
         if not self.has_message_content_intent():
-            self.warn_missing_message_content_intent()
+            await self.warn_missing_message_content_intent()
 
     @staticmethod
     def is_likely_address_match(match: re.Match[str]) -> bool:
@@ -337,7 +365,7 @@ class DoxxingDetector(commands.Cog):
 
     async def message_search_content_with_forward_fetch(self, message: discord.Message) -> str:
         if not self.has_message_content_intent():
-            self.warn_missing_message_content_intent()
+            await self.warn_missing_message_content_intent(getattr(message, "guild", None))
 
         content = self.message_search_content(message)
         snapshots = getattr(message, "message_snapshots", [])
@@ -347,15 +375,21 @@ class DoxxingDetector(commands.Cog):
             and not self._warned_empty_forward_snapshot_content
         ):
             self._warned_empty_forward_snapshot_content = True
-            print(
-                "DoxxingDetector warning: received forwarded message snapshots, "
-                "but Discord sent empty snapshot content. Confirm the Message Content "
-                "privileged intent is enabled in code and in the Discord Developer Portal."
+            embed = discord.Embed(
+                title="Doxxing detector warning",
+                description=(
+                    "Received forwarded message snapshots, but Discord sent empty "
+                    "snapshot content. Confirm the Message Content privileged intent "
+                    "is enabled in code and in the Discord Developer Portal."
+                ),
+                color=discord.Color.orange(),
+                timestamp=discord.utils.utcnow(),
             )
+            await self.send_log_embed(embed, getattr(message, "guild", None))
 
         fetched_content = await self.fetch_forwarded_message_content(message)
         searchable_content = "\n".join(part for part in [content, fetched_content] if part)
-        self.log_forward_debug(message, searchable_content)
+        await self.log_forward_debug(message, searchable_content)
         return searchable_content
 
     @staticmethod
@@ -385,9 +419,7 @@ class DoxxingDetector(commands.Cog):
         if guild is None:
             return
 
-        log_channel = guild.get_channel(LOG_CHANNEL_ID)
-        if log_channel is None:
-            log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
+        log_channel = self.get_log_channel(guild)
         if log_channel is None:
             return
 
