@@ -764,6 +764,16 @@ class DoxxingDetector(commands.Cog):
         await self.log_unscannable_reference(message, deleted, "; ".join(errors))
 
     @staticmethod
+    async def delete_message(message: discord.Message) -> tuple[bool, str | None]:
+        try:
+            await message.delete()
+            return True, None
+        except discord.Forbidden:
+            return False, "Missing permission to delete the message."
+        except discord.HTTPException as exc:
+            return False, f"Failed to delete message: {exc}"
+
+    @staticmethod
     def has_timeout_exempt_role(member: discord.Member) -> bool:
         return any(role.id in EXEMPT_ROLE_IDS for role in member.roles)
 
@@ -861,12 +871,17 @@ class DoxxingDetector(commands.Cog):
         if message.guild is None:
             return
 
+        deleted = False
+        delete_error = None
         if self.should_delete_from_log_channel(message):
-            try:
-                await message.delete()
-            except discord.HTTPException:
-                pass
-            return
+            deleted, delete_error = await self.delete_message(message)
+            searchable_content = await self.message_search_content_with_forward_fetch(message)
+            match_types = self.find_doxxing_types(searchable_content)
+            if not match_types:
+                return
+        else:
+            searchable_content = None
+            match_types = None
 
         is_forward_message = self.is_forward_message(message)
         is_reference_like_message = self.is_reference_like_message(message)
@@ -875,18 +890,19 @@ class DoxxingDetector(commands.Cog):
         if not isinstance(message.author, discord.Member) and not is_forward_message and not is_reference_like_message:
             return
 
-        searchable_content = await self.message_search_content_with_forward_fetch(message)
-        match_types = self.find_doxxing_types(searchable_content)
+        if searchable_content is None:
+            searchable_content = await self.message_search_content_with_forward_fetch(message)
+        if match_types is None:
+            match_types = self.find_doxxing_types(searchable_content)
         if not match_types:
             unresolved_reference_error = await self.unresolved_reference_error(message)
             if unresolved_reference_error:
                 await self.delete_unscannable_reference_message(message, unresolved_reference_error)
             return
 
-        deleted = False
         timed_out = False
         dm_sent = False
-        errors = []
+        errors = [delete_error] if delete_error else []
 
         if message.author.bot:
             errors.append("Skipped DM because the forwarded message was authored by a bot.")
@@ -897,13 +913,10 @@ class DoxxingDetector(commands.Cog):
             else:
                 dm_sent = True
 
-        try:
-            await message.delete()
-            deleted = True
-        except discord.Forbidden:
-            errors.append("Missing permission to delete the message.")
-        except discord.HTTPException as exc:
-            errors.append(f"Failed to delete message: {exc}")
+        if not deleted:
+            deleted, delete_error = await self.delete_message(message)
+            if delete_error:
+                errors.append(delete_error)
 
         me = message.guild.me or message.guild.get_member(self.bot.user.id)
         if message.author.bot:

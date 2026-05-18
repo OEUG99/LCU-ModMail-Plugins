@@ -606,16 +606,29 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_on_message_deletes_log_message_with_disallowed_reference_channel(self):
         deleted = []
+        timed_out = []
 
         async def delete_message():
             deleted.append(True)
+
+        async def timeout_member(until, reason=None):
+            timed_out.append((until, reason))
 
         bot = SimpleNamespace(get_channel=lambda channel_id: None)
         detector = DoxxingDetector(bot)
         message = SimpleNamespace(
             guild=SimpleNamespace(),
-            author=SimpleNamespace(bot=False),
+            author=SimpleNamespace(
+                bot=False,
+                guild_permissions=SimpleNamespace(administrator=False),
+                roles=[],
+                timeout=timeout_member,
+            ),
             channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            content="forwarded message wrapper",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
             reference=SimpleNamespace(channel_id=123),
             delete=delete_message,
         )
@@ -623,6 +636,73 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         await detector.on_message(message)
 
         self.assertEqual(deleted, [True])
+        self.assertEqual(timed_out, [])
+
+    async def test_on_message_times_out_log_message_with_doxxing_content(self):
+        sent_embeds = []
+        sent_dms = []
+        deleted = []
+        timed_out = []
+
+        async def send_log(embed):
+            sent_embeds.append(embed)
+
+        async def send_dm(content):
+            sent_dms.append(content)
+
+        async def delete_message():
+            deleted.append(True)
+
+        async def timeout_member(until, reason=None):
+            timed_out.append((until, reason))
+
+        author = SimpleNamespace(
+            bot=False,
+            mention="@user",
+            id=321,
+            send=send_dm,
+            guild_permissions=SimpleNamespace(administrator=False),
+            roles=[],
+            timeout=timeout_member,
+        )
+        me = SimpleNamespace(
+            guild_permissions=SimpleNamespace(moderate_members=True),
+            top_role=2,
+        )
+        author.top_role = 1
+        log_channel = SimpleNamespace(send=send_log)
+        guild = SimpleNamespace(
+            get_channel=lambda channel_id: log_channel,
+            get_member=lambda member_id: None,
+            me=me,
+        )
+        bot = SimpleNamespace(get_channel=lambda channel_id: log_channel, user=SimpleNamespace(id=999))
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=guild,
+            author=author,
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID, mention="#log"),
+            content="my number is 555-123-4567",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[],
+            reference=SimpleNamespace(
+                type=discord.MessageReferenceType.forward,
+                channel_id=123,
+                message_id=456,
+                resolved=None,
+                cached_message=None,
+            ),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [True])
+        self.assertEqual(sent_dms, [AUTO_FLAG_DM])
+        self.assertEqual(len(timed_out), 1)
+        self.assertEqual(timed_out[0][1], "Posted likely private personal information.")
+        self.assertEqual(sent_embeds[-1].title, "Doxxing content removed")
 
 
 if __name__ == "__main__":
