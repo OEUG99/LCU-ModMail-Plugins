@@ -152,6 +152,16 @@ class DoxxingDetectorTest(unittest.TestCase):
             )
         )
 
+    def test_forward_message_detection_accepts_snapshots(self):
+        message = SimpleNamespace(
+            message_snapshots=[
+                SimpleNamespace(content="my number is 555-123-4567", embeds=[]),
+            ],
+            reference=None,
+        )
+
+        self.assertTrue(DoxxingDetector.is_forward_message(message))
+
     def test_member_with_exempt_role_is_timeout_exempt(self):
         member = SimpleNamespace(
             guild_permissions=SimpleNamespace(administrator=False),

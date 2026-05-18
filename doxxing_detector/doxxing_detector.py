@@ -168,10 +168,18 @@ class DoxxingDetector(commands.Cog):
     def has_message_content_intent(self) -> bool:
         return getattr(getattr(self.bot, "intents", None), "message_content", True)
 
+    @classmethod
+    def is_forward_message(cls, message: discord.Message) -> bool:
+        if getattr(message, "message_snapshots", []):
+            return True
+
+        reference = getattr(message, "reference", None)
+        return reference is not None and cls.is_forward_reference(reference)
+
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
         reference = getattr(message, "reference", None)
         snapshots = getattr(message, "message_snapshots", [])
-        if reference is None and not snapshots:
+        if not self.is_forward_message(message):
             return
 
         snapshot_lengths = [
@@ -449,9 +457,13 @@ class DoxxingDetector(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
-        if message.author.bot or message.guild is None:
+        if message.guild is None:
             return
-        if not isinstance(message.author, discord.Member):
+
+        is_forward_message = self.is_forward_message(message)
+        if message.author.bot and not is_forward_message:
+            return
+        if not isinstance(message.author, discord.Member) and not is_forward_message:
             return
 
         searchable_content = await self.message_search_content_with_forward_fetch(message)
@@ -464,11 +476,14 @@ class DoxxingDetector(commands.Cog):
         dm_sent = False
         errors = []
 
-        dm_error = await self.notify_author(message)
-        if dm_error:
-            errors.append(dm_error)
+        if message.author.bot:
+            errors.append("Skipped DM because the forwarded message was authored by a bot.")
         else:
-            dm_sent = True
+            dm_error = await self.notify_author(message)
+            if dm_error:
+                errors.append(dm_error)
+            else:
+                dm_sent = True
 
         try:
             await message.delete()
@@ -479,7 +494,9 @@ class DoxxingDetector(commands.Cog):
             errors.append(f"Failed to delete message: {exc}")
 
         me = message.guild.me or message.guild.get_member(self.bot.user.id)
-        if me and self.can_timeout(message.author, me):
+        if message.author.bot:
+            errors.append("Skipped timeout because the forwarded message was authored by a bot.")
+        elif me and self.can_timeout(message.author, me):
             until = discord.utils.utcnow() + TIMEOUT_DURATION
             try:
                 await message.author.timeout(
