@@ -113,10 +113,29 @@ class DoxxingDetectorTest(unittest.TestCase):
         message = SimpleNamespace(
             content="",
             embeds=[],
+            attachments=[],
             message_snapshots=[
-                SimpleNamespace(content="my number is 555-123-4567", embeds=[]),
+                SimpleNamespace(content="my number is 555-123-4567", embeds=[], attachments=[]),
             ],
         )
+
+        searchable = DoxxingDetector.message_search_content(message)
+
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(searchable))
+
+    def test_search_content_includes_raw_forwarded_snapshot_payload_text(self):
+        message = {
+            "content": "",
+            "embeds": [],
+            "attachments": [],
+            "message_snapshots": [
+                {
+                    "content": "my number is 555-123-4567",
+                    "embeds": [],
+                    "attachments": [],
+                },
+            ],
+        }
 
         searchable = DoxxingDetector.message_search_content(message)
 
@@ -131,8 +150,34 @@ class DoxxingDetectorTest(unittest.TestCase):
         message = SimpleNamespace(
             content="",
             embeds=[],
+            attachments=[],
             message_snapshots=[
-                SimpleNamespace(content="", embeds=[embed]),
+                SimpleNamespace(content="", embeds=[embed], attachments=[]),
+            ],
+        )
+
+        searchable = DoxxingDetector.message_search_content(message)
+
+        self.assertIn("email", DoxxingDetector.find_doxxing_types(searchable))
+
+    def test_search_content_includes_forwarded_attachment_text(self):
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[],
+            message_snapshots=[
+                SimpleNamespace(
+                    content="",
+                    embeds=[],
+                    attachments=[
+                        SimpleNamespace(
+                            filename="contact.txt",
+                            description="email me at person@example.com",
+                            url="https://cdn.discordapp.com/attachments/contact.txt",
+                            proxy_url="",
+                        ),
+                    ],
+                ),
             ],
         )
 
@@ -149,6 +194,11 @@ class DoxxingDetectorTest(unittest.TestCase):
         self.assertTrue(
             DoxxingDetector.is_forward_reference(
                 SimpleNamespace(type=discord.MessageReferenceType.forward.value)
+            )
+        )
+        self.assertTrue(
+            DoxxingDetector.is_forward_reference(
+                {"type": discord.MessageReferenceType.forward.value}
             )
         )
 
@@ -190,6 +240,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
                 return SimpleNamespace(
                     content="my address is 123 Main Street",
                     embeds=[],
+                    attachments=[],
                     message_snapshots=[],
                     reference=None,
                 )
@@ -200,6 +251,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         message = SimpleNamespace(
             content="forward wrapper text",
             embeds=[],
+            attachments=[],
             message_snapshots=[],
             reference=SimpleNamespace(
                 type=discord.MessageReferenceType.forward,

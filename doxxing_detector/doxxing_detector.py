@@ -170,10 +170,10 @@ class DoxxingDetector(commands.Cog):
 
     @classmethod
     def is_forward_message(cls, message: discord.Message) -> bool:
-        if getattr(message, "message_snapshots", []):
+        if cls.sequence_field(message, "message_snapshots"):
             return True
 
-        reference = getattr(message, "reference", None)
+        reference = cls.field_value(message, "reference")
         return reference is not None and cls.is_forward_reference(reference)
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
@@ -182,14 +182,8 @@ class DoxxingDetector(commands.Cog):
         if not self.is_forward_message(message):
             return
 
-        snapshot_lengths = [
-            len(getattr(snapshot, "content", "") or "")
-            for snapshot in snapshots
-        ]
-        snapshot_embed_counts = [
-            len(getattr(snapshot, "embeds", []) or [])
-            for snapshot in snapshots
-        ]
+        snapshot_lengths = [len(self.field_value(snapshot, "content", "") or "") for snapshot in snapshots]
+        snapshot_embed_counts = [len(self.sequence_field(snapshot, "embeds")) for snapshot in snapshots]
         embed = discord.Embed(
             title="Doxxing forward debug",
             color=discord.Color.blurple(),
@@ -273,14 +267,38 @@ class DoxxingDetector(commands.Cog):
         return me.guild_permissions.moderate_members and me.top_role > target.top_role
 
     @staticmethod
+    def field_value(item, name: str, default=None):
+        if isinstance(item, dict):
+            return item.get(name, default)
+        return getattr(item, name, default)
+
+    @classmethod
+    def sequence_field(cls, item, name: str) -> list:
+        value = cls.field_value(item, name, [])
+        return value or []
+
+    @staticmethod
     def spoiler_text(content: str) -> str:
         if not content:
             return "[no text content]"
         escaped = content.replace("|", "\\|")
         return f"||{escaped[:1020]}||"
 
-    @staticmethod
-    def embed_text(embed: discord.Embed) -> str:
+    @classmethod
+    def embed_text(cls, embed: discord.Embed | dict) -> str:
+        if isinstance(embed, dict):
+            fields = embed.get("fields", []) or []
+            author = embed.get("author", {}) or {}
+            footer = embed.get("footer", {}) or {}
+            parts = [
+                embed.get("title"),
+                embed.get("description"),
+                *(field.get("value") for field in fields if isinstance(field, dict)),
+                author.get("name") if isinstance(author, dict) else None,
+                footer.get("text") if isinstance(footer, dict) else None,
+            ]
+            return "\n".join(part for part in parts if part)
+
         parts = [
             getattr(embed, "title", None),
             getattr(embed, "description", None),
@@ -305,9 +323,20 @@ class DoxxingDetector(commands.Cog):
         )
         return "\n".join(part for part in parts if part)
 
+    @classmethod
+    def attachment_text(cls, attachment: discord.Attachment | dict) -> str:
+        parts = [
+            cls.field_value(attachment, "filename", ""),
+            cls.field_value(attachment, "description", ""),
+            cls.field_value(attachment, "title", ""),
+            cls.field_value(attachment, "url", ""),
+            cls.field_value(attachment, "proxy_url", ""),
+        ]
+        return "\n".join(part for part in parts if part)
+
     @staticmethod
     def is_forward_reference(reference) -> bool:
-        reference_type = getattr(reference, "type", None)
+        reference_type = DoxxingDetector.field_value(reference, "type")
         return (
             reference_type is discord.MessageReferenceType.forward
             or reference_type == discord.MessageReferenceType.forward
@@ -324,39 +353,46 @@ class DoxxingDetector(commands.Cog):
             return ""
         seen.add(message_id)
 
-        parts = [getattr(message, "content", "")]
+        parts = [cls.field_value(message, "content", "")]
 
-        for embed in getattr(message, "embeds", []):
+        for embed in cls.sequence_field(message, "embeds"):
             parts.append(cls.embed_text(embed))
 
-        for snapshot in getattr(message, "message_snapshots", []):
-            parts.append(getattr(snapshot, "content", ""))
-            for embed in getattr(snapshot, "embeds", []):
-                parts.append(cls.embed_text(embed))
+        for attachment in cls.sequence_field(message, "attachments"):
+            parts.append(cls.attachment_text(attachment))
 
-        reference = getattr(message, "reference", None)
+        for snapshot in cls.sequence_field(message, "message_snapshots"):
+            parts.append(cls.field_value(snapshot, "content", ""))
+            for embed in cls.sequence_field(snapshot, "embeds"):
+                parts.append(cls.embed_text(embed))
+            for attachment in cls.sequence_field(snapshot, "attachments"):
+                parts.append(cls.attachment_text(attachment))
+
+        reference = cls.field_value(message, "reference")
         if reference is not None and cls.is_forward_reference(reference):
-            resolved = getattr(reference, "resolved", None)
+            resolved = cls.field_value(reference, "resolved")
             if isinstance(resolved, discord.Message):
                 parts.append(cls.message_search_content(resolved, seen))
 
-            cached_message = getattr(reference, "cached_message", None)
+            cached_message = cls.field_value(reference, "cached_message")
             if isinstance(cached_message, discord.Message):
                 parts.append(cls.message_search_content(cached_message, seen))
 
         return "\n".join(part for part in parts if part)
 
     async def fetch_forwarded_message_content(self, message: discord.Message) -> str:
-        reference = getattr(message, "reference", None)
+        reference = self.field_value(message, "reference")
         if reference is None or not self.is_forward_reference(reference):
             return ""
-        if not reference.channel_id or not reference.message_id:
+        channel_id = self.field_value(reference, "channel_id")
+        message_id = self.field_value(reference, "message_id")
+        if not channel_id or not message_id:
             return ""
 
-        channel = self.bot.get_channel(reference.channel_id)
+        channel = self.bot.get_channel(channel_id)
         if channel is None:
             try:
-                channel = await self.bot.fetch_channel(reference.channel_id)
+                channel = await self.bot.fetch_channel(channel_id)
             except (discord.Forbidden, discord.NotFound, discord.HTTPException):
                 return ""
 
@@ -365,7 +401,7 @@ class DoxxingDetector(commands.Cog):
             return ""
 
         try:
-            forwarded_message = await fetch_message(reference.message_id)
+            forwarded_message = await fetch_message(message_id)
         except (discord.Forbidden, discord.NotFound, discord.HTTPException):
             return ""
 
@@ -376,10 +412,10 @@ class DoxxingDetector(commands.Cog):
             await self.warn_missing_message_content_intent(getattr(message, "guild", None))
 
         content = self.message_search_content(message)
-        snapshots = getattr(message, "message_snapshots", [])
+        snapshots = self.sequence_field(message, "message_snapshots")
         if (
             snapshots
-            and not any(getattr(snapshot, "content", "") for snapshot in snapshots)
+            and not any(self.field_value(snapshot, "content", "") for snapshot in snapshots)
             and not self._warned_empty_forward_snapshot_content
         ):
             self._warned_empty_forward_snapshot_content = True
