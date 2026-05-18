@@ -8,6 +8,10 @@ from discord.ext import commands
 
 TIMEOUT_DURATION = datetime.timedelta(hours=3)
 LOG_CHANNEL_ID = 1497340655423324309
+ALLOWED_LOG_REFERENCE_CHANNEL_IDS = {
+    1494751503834022040,
+    1450884163426189372,
+}
 AUTO_FLAG_DM = (
     "Your message was automatically flagged by the moderation bot for possible private personal information "
     "and was removed. If this was a mistake, please message Mod Mail so the moderation team can review it."
@@ -303,6 +307,24 @@ class DoxxingDetector(commands.Cog):
             cls.may_need_current_message_refetch(message)
             or cls.has_message_id_without_reference_channel(message)
             or cls.needs_reference_fetch_for_scan(message)
+        )
+
+    @classmethod
+    def has_allowed_log_reference_channel(cls, message: discord.Message) -> bool:
+        reference = cls.field_value(message, "reference")
+        channel_id = cls.field_value(reference, "channel_id") if reference is not None else None
+        try:
+            channel_id = int(channel_id)
+        except (TypeError, ValueError):
+            return False
+        return channel_id in ALLOWED_LOG_REFERENCE_CHANNEL_IDS
+
+    @classmethod
+    def should_delete_from_log_channel(cls, message: discord.Message) -> bool:
+        channel = cls.field_value(message, "channel")
+        return (
+            cls.field_value(channel, "id") == LOG_CHANNEL_ID
+            and not cls.has_allowed_log_reference_channel(message)
         )
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
@@ -837,6 +859,13 @@ class DoxxingDetector(commands.Cog):
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
         if message.guild is None:
+            return
+
+        if self.should_delete_from_log_channel(message):
+            try:
+                await message.delete()
+            except discord.HTTPException:
+                pass
             return
 
         is_forward_message = self.is_forward_message(message)

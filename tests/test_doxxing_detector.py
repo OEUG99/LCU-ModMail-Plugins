@@ -4,7 +4,13 @@ from types import SimpleNamespace
 
 import discord
 
-from doxxing_detector.doxxing_detector import AUTO_FLAG_DM, DoxxingDetector, EXEMPT_ROLE_IDS, TIMEOUT_DURATION
+from doxxing_detector.doxxing_detector import (
+    AUTO_FLAG_DM,
+    DoxxingDetector,
+    EXEMPT_ROLE_IDS,
+    LOG_CHANNEL_ID,
+    TIMEOUT_DURATION,
+)
 
 
 class DoxxingDetectorTest(unittest.TestCase):
@@ -247,6 +253,24 @@ class DoxxingDetectorTest(unittest.TestCase):
         )
 
         self.assertTrue(DoxxingDetector.has_timeout_exempt_role(member))
+
+    def test_log_reference_channel_allowlist_accepts_allowed_channel(self):
+        message = SimpleNamespace(
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            reference=SimpleNamespace(channel_id=1494751503834022040),
+        )
+
+        self.assertTrue(DoxxingDetector.has_allowed_log_reference_channel(message))
+        self.assertFalse(DoxxingDetector.should_delete_from_log_channel(message))
+
+    def test_log_reference_channel_allowlist_rejects_missing_reference(self):
+        message = SimpleNamespace(
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            reference=None,
+        )
+
+        self.assertFalse(DoxxingDetector.has_allowed_log_reference_channel(message))
+        self.assertTrue(DoxxingDetector.should_delete_from_log_channel(message))
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
@@ -559,6 +583,46 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deleted, [True])
         self.assertEqual(sent_dms, [AUTO_FLAG_DM])
         self.assertEqual(sent_embeds[-1].title, "Doxxing content removed")
+
+    async def test_on_message_deletes_log_message_without_reference_channel(self):
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=SimpleNamespace(),
+            author=SimpleNamespace(bot=True),
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            reference=None,
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [True])
+
+    async def test_on_message_deletes_log_message_with_disallowed_reference_channel(self):
+        deleted = []
+
+        async def delete_message():
+            deleted.append(True)
+
+        bot = SimpleNamespace(get_channel=lambda channel_id: None)
+        detector = DoxxingDetector(bot)
+        message = SimpleNamespace(
+            guild=SimpleNamespace(),
+            author=SimpleNamespace(bot=False),
+            channel=SimpleNamespace(id=LOG_CHANNEL_ID),
+            reference=SimpleNamespace(channel_id=123),
+            delete=delete_message,
+        )
+
+        await detector.on_message(message)
+
+        self.assertEqual(deleted, [True])
 
 
 if __name__ == "__main__":
