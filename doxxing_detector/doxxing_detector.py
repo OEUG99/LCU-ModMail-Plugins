@@ -354,37 +354,7 @@ class DoxxingDetector(commands.Cog):
         if not self.has_forward_like_reference(message):
             return False
         author = self.field_value(message, "author")
-        if self.has_always_delete_forward_role(author):
-            return True
-
-        channel_id = self.forward_reference_channel_id(message)
-        if channel_id is None:
-            return False
-        if self.has_timeout_exempt_role(author):
-            return False
-        if channel_id in EXEMPT_FORWARD_SOURCE_CHANNEL_IDS:
-            return False
-
-        guild = self.get_forward_source_guild(message)
-        if guild is not None and self.guild_has_channel_id(guild, channel_id):
-            return False
-
-        channel = self.bot.get_channel(channel_id)
-        if channel is not None:
-            channel_guild = self.field_value(channel, "guild")
-            return self.field_value(channel_guild, "id") != FORWARD_SOURCE_GUILD_ID
-
-        fetch_channel = getattr(self.bot, "fetch_channel", None)
-        if fetch_channel is None:
-            return True
-
-        try:
-            channel = await fetch_channel(channel_id)
-        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
-            return True
-
-        channel_guild = self.field_value(channel, "guild")
-        return self.field_value(channel_guild, "id") != FORWARD_SOURCE_GUILD_ID
+        return self.has_always_delete_forward_role(author)
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
         reference = self.field_value(message, "reference")

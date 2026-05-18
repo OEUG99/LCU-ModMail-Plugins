@@ -857,7 +857,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(deleted, [True])
 
-    async def test_on_message_deletes_forward_from_outside_source_server(self):
+    async def test_on_message_ignores_forward_from_outside_source_server_without_always_delete_role(self):
         deleted = []
         timed_out = []
 
@@ -901,7 +901,7 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
 
         await detector.on_message(message)
 
-        self.assertEqual(deleted, [True])
+        self.assertEqual(deleted, [])
         self.assertEqual(timed_out, [])
 
     async def test_on_message_times_out_forward_from_outside_server_with_doxxing_content(self):
