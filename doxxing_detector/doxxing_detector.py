@@ -48,6 +48,13 @@ PHONE_RE = re.compile(
 DISCORD_TIMESTAMP_RE = re.compile(r"<t:\d{1,12}(?::[A-Za-z])?>")
 GAME_SCORE_RE = re.compile(r"\b\d+\s*v(?:s\.?|ersus)?\s*\d+\b", re.IGNORECASE)
 HTTP_URL_RE = re.compile(r"\bhttps?://[^\s<>()]+", re.IGNORECASE)
+FILE_TOKEN_RE = re.compile(
+    r"(?<!\S)"
+    r"\S+\."
+    r"(?:avif|bmp|gif|heic|heif|jpeg|jpg|mov|mp4|png|webm|webp)"
+    r"(?!\S)",
+    re.IGNORECASE,
+)
 
 STREET_SUFFIX_RE = (
     r"street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|circle|cir|"
@@ -421,15 +428,20 @@ class DoxxingDetector(commands.Cog):
         return HTTP_URL_RE.sub(strip_url, content)
 
     @staticmethod
+    def strip_file_tokens(content: str) -> str:
+        return FILE_TOKEN_RE.sub(" ", content)
+
+    @staticmethod
     def find_doxxing_types(content: str) -> list[str]:
         matches = []
         searchable_content = DISCORD_TIMESTAMP_RE.sub(" ", content)
         searchable_content = GAME_SCORE_RE.sub(" ", searchable_content)
         searchable_content = DoxxingDetector.strip_http_urls(searchable_content)
+        phone_searchable_content = DoxxingDetector.strip_file_tokens(searchable_content)
 
         if EMAIL_RE.search(searchable_content):
             matches.append("email")
-        if PHONE_RE.search(searchable_content):
+        if PHONE_RE.search(phone_searchable_content):
             matches.append("phone number")
         if DoxxingDetector.has_address(searchable_content):
             matches.append("address")

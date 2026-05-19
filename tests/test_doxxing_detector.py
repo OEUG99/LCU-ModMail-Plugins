@@ -104,6 +104,17 @@ class DoxxingDetectorTest(unittest.TestCase):
 
         self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
 
+    def test_attachment_filename_digits_are_not_a_phone_number(self):
+        self.assertEqual(
+            DoxxingDetector.find_doxxing_types("Snapchat-1623812610.jpg"),
+            [],
+        )
+
+    def test_phone_number_next_to_attachment_filename_is_still_detected(self):
+        content = "Snapchat-1623812610.jpg my number is 555-123-4567"
+
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(content))
+
     def test_phone_number_outside_url_query_is_still_detected(self):
         content = (
             "https://example.com/products?campaign=11548931703 "
