@@ -80,6 +80,39 @@ class DoxxingDetectorTest(unittest.TestCase):
             [],
         )
 
+    def test_video_chapter_list_is_not_doxxing(self):
+        content = (
+            "https://www.youtube.com/watch?v=mXEJNFzoVaY&t=3s\n"
+            "Funny 0:57 Pit LCU Park intro still of Tina, Keem, Fupa, Phantom, "
+            "Foxy, Glamy, Xylie, Dezi, TP and Zey in SP dancing together.\n"
+            "Funny 3:08 Jersey as a SouthPark character.\n"
+            "Funny 5:50 YM watches Gidgy on Wheel of Fortune in SouthPark.\n"
+            "Funny 7:57 WW goes off on Foxy and Fupa in SouthPark.\n"
+            "Funny 10:42 BG thank you so much in SP.\n"
+            "Funny 13:08 Fupa selling cloths on Tik Tok in SP.\n"
+            "Funny 15:40 Boogie tries to glaze YM on Pit in SP.\n"
+            "Funny 22:04 Foxy breaks her keyboard on Queens in SP\n"
+            "Drama 26:19 After YM hears a tts saying why Pit wasn't advertised all day. "
+            "YM talks about Keem's Jester stream on Xylie being parasocial gave us "
+            "Kelly as a manager.\n"
+            "Funny 29:08 Tammy and Dezi talking about YM on Rain in SP.\n"
+            "Funny 37:36 Tina does her Keem gifted member count down on Queens in SP.\n"
+            "Funny 42:55 Zey tells her sex work story about her pooping client on Rewind in SP.\n"
+            "**Funny 45:41 Xylie gets annoyed on a drinking stream and needs"
+        )
+
+        self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
+
+    def test_video_timestamp_with_address_like_words_is_not_an_address(self):
+        content = "Funny 45:41 Xylie gets annoyed on a drinking stream and needs Way"
+
+        self.assertNotIn("address", DoxxingDetector.find_doxxing_types(content))
+
+    def test_video_timestamp_next_to_phone_number_still_detects_phone_number(self):
+        content = "Funny 0:57 call me at 555-123-4567"
+
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(content))
+
     def test_ad_tracking_url_is_not_a_phone_number(self):
         content = (
             "https://mycarpe.com/products/clinical-grade-antiperspirant-underarm-regimen?"
