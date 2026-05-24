@@ -35,9 +35,25 @@ class DoxxingDetectorTest(unittest.TestCase):
         self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
         self.assertEqual(DoxxingDetector.find_doxxing_types(f"{content} <---"), [])
 
+    def test_rating_recommendation_with_road_flavor_is_not_an_address(self):
+        content = (
+            "Guys it's called Fantastic Fudge it's in Fernandina Beach 10/10 recommend "
+            "rocky road flavor but warning it has nuts in it just letting u know incase "
+            "anyone is allergic <----"
+        )
+
+        self.assertEqual(DoxxingDetector.find_doxxing_types(content), [])
+
     def test_travel_duration_to_drive_is_not_an_address(self):
         self.assertEqual(
             DoxxingDetector.find_doxxing_types("I have another 18 hours to drive"),
+            [],
+        )
+        self.assertEqual(
+            DoxxingDetector.find_doxxing_types(
+                "I have a 5 hour drive today. Which shows do i NEED to catch up on "
+                "for the week to make sense <---"
+            ),
             [],
         )
         self.assertEqual(

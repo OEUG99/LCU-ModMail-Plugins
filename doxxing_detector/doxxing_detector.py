@@ -48,6 +48,7 @@ PHONE_RE = re.compile(
 DISCORD_TIMESTAMP_RE = re.compile(r"<t:\d{1,12}(?::[A-Za-z])?>")
 VIDEO_TIMESTAMP_RE = re.compile(r"(?<!\w)\d{1,2}:\d{2}(?::\d{2})?(?!\w)")
 GAME_SCORE_RE = re.compile(r"\b\d+\s*v(?:s\.?|ersus)?\s*\d+\b", re.IGNORECASE)
+RATING_RE = re.compile(r"(?<!\w)\d{1,2}/10(?!\w)")
 HTTP_URL_RE = re.compile(r"\bhttps?://[^\s<>()]+", re.IGNORECASE)
 FILE_TOKEN_RE = re.compile(
     r"(?<!\S)"
@@ -111,6 +112,7 @@ CONVERSATIONAL_ADDRESS_WORDS = {
     "had",
     "has",
     "have",
+    "hour",
     "hours",
     "hrs",
     "if",
@@ -438,6 +440,7 @@ class DoxxingDetector(commands.Cog):
         searchable_content = DISCORD_TIMESTAMP_RE.sub(" ", content)
         searchable_content = VIDEO_TIMESTAMP_RE.sub(" ", searchable_content)
         searchable_content = GAME_SCORE_RE.sub(" ", searchable_content)
+        searchable_content = RATING_RE.sub(" ", searchable_content)
         searchable_content = DoxxingDetector.strip_http_urls(searchable_content)
         phone_searchable_content = DoxxingDetector.strip_file_tokens(searchable_content)
 
