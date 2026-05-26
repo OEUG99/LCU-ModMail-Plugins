@@ -77,6 +77,7 @@ class DoxxingDetectorTest(unittest.TestCase):
             "He did a 180 in court",
             "That case took 3 days in court",
             "Went from 0 to 100 and back full circle",
+            "i have no idea how it can go lost in a 2 room apartment <---",
         ]
 
         for content in examples:

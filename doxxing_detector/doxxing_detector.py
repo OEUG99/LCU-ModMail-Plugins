@@ -142,6 +142,16 @@ CONVERSATIONAL_ADDRESS_WORDS = {
     "your",
 }
 
+HOUSING_DESCRIPTION_WORDS = {
+    "bath",
+    "bathroom",
+    "bed",
+    "bedroom",
+    "br",
+    "room",
+    "studio",
+}
+
 
 class DoxxingDetector(commands.Cog):
     """Delete messages containing likely private info and timeout the sender."""
@@ -399,12 +409,17 @@ class DoxxingDetector(commands.Cog):
     @staticmethod
     def is_likely_address_match(match: re.Match[str]) -> bool:
         street_name = match.group("street_name")
+        suffix = match.group("suffix").lower()
         street_words = [
             word.strip(" .'-").lower()
             for word in street_name.split()
             if word.strip(" .'-")
         ]
         if any(word in CONVERSATIONAL_ADDRESS_WORDS for word in street_words):
+            return False
+        if suffix in {"apartment", "apt", "unit"} and all(
+            word in HOUSING_DESCRIPTION_WORDS for word in street_words
+        ):
             return False
         return True
 
