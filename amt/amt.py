@@ -16,7 +16,7 @@ class AMT(commands.Cog, name="AMT"):
     @commands.has_permissions(ban_members=True, view_audit_log=True)
     async def unban_stakesaucey(self, ctx):
         """Unbans users if the audit log shows a ban reason containing 'Stakesaucey' or 'The HotDog Revival'."""
-        await self._unban_by_reason_keywords(ctx, ["Stakesaucey", "The HotDog Revival"])
+        await self._unban_by_reason_keywords(ctx, ["Stakesaucey", "The HotDog Revival", "Rastovia"])
 
     @commands.command(name="unassociated")
     @commands.has_permissions(ban_members=True, view_audit_log=True)
