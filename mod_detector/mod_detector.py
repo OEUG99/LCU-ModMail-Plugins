@@ -1,6 +1,10 @@
+import datetime
+import io
+import re
+from typing import Optional, List, Tuple
+
 import discord
 from discord.ext import commands
-from typing import Optional, List, Tuple
 
 # Utility: format None/empty values nicely
 def _nick(val: Optional[str]) -> str:
@@ -14,6 +18,10 @@ def _roles(roles: Optional[List[discord.Role]]) -> str:
     if not roles:
         return "None"
     return ", ".join([r.name for r in roles])
+
+def _filename_safe(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip())
+    return cleaned.strip("._") or "server"
 
 class Mod_Detector(commands.Cog):
     """Search the guild audit log for nickname or role changes affecting a given user."""
@@ -41,6 +49,13 @@ class Mod_Detector(commands.Cog):
     @commands.command(name="modactions", help="Show all role changes a user has performed on others.")
     async def mod_actions(self, ctx: commands.Context, user: Optional[discord.User] = None, *, user_id: Optional[str] = None):
         await self._audit_actions(ctx, user, user_id)
+
+    # ------------------------
+    # Recent ban report command
+    # ------------------------
+    @commands.command(name="modbans", aliases=["banreport", "modbanreport"], help="Generate a text file of bans from the last 30 days.")
+    async def mod_bans(self, ctx: commands.Context):
+        await self._audit_recent_bans(ctx)
 
     # ------------------------
     # Internal helpers
@@ -233,6 +248,77 @@ class Mod_Detector(commands.Cog):
                     inline=False
                 )
             await ctx.send(embed=embed)
+
+    async def _audit_recent_bans(self, ctx: commands.Context):
+        guild = ctx.guild
+        if guild is None:
+            return await ctx.send("❌ This command can only be used in a server.")
+
+        me = guild.me or guild.get_member(self.bot.user.id)
+        if not me or not me.guild_permissions.view_audit_log:
+            return await ctx.send("❌ I need the **View Audit Log** permission to search bans.")
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        since = now - datetime.timedelta(days=30)
+        status_msg = await ctx.send("🔍 Searching ban audit logs from the last 30 days...")
+
+        matches: List[discord.AuditLogEntry] = []
+        try:
+            async for entry in guild.audit_logs(limit=None, action=discord.AuditLogAction.ban, after=since):
+                if entry.created_at < since:
+                    continue
+                matches.append(entry)
+        except discord.Forbidden:
+            return await ctx.send("❌ Cannot access audit logs. Check my permissions.")
+        except discord.HTTPException as e:
+            return await ctx.send(f"❌ Discord API error: `{e}`")
+
+        matches.sort(key=lambda entry: entry.created_at, reverse=True)
+        report = self._format_ban_report(guild, matches, since, now)
+        file_bytes = io.BytesIO(report.encode("utf-8"))
+        filename = f"{_filename_safe(guild.name)[:32]}_bans_last_30_days.txt"
+
+        await status_msg.edit(content=f"✅ Found **{len(matches)}** ban(s) from the last 30 days.")
+        await ctx.send(file=discord.File(file_bytes, filename=filename))
+
+    def _format_ban_report(
+        self,
+        guild: discord.Guild,
+        entries: List[discord.AuditLogEntry],
+        since: datetime.datetime,
+        now: datetime.datetime,
+    ) -> str:
+        lines = [
+            f"Ban Report - {guild.name}",
+            f"Window: {since.strftime('%Y-%m-%d %H:%M:%S UTC')} to {now.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+            f"Total bans: {len(entries)}",
+            "",
+        ]
+
+        if not entries:
+            lines.append("No ban audit log entries found in the last 30 days.")
+            return "\n".join(lines)
+
+        for index, entry in enumerate(entries, start=1):
+            target = entry.target
+            moderator = entry.user
+            target_name = str(target) if target else "Unknown user"
+            target_id = getattr(target, "id", "Unknown ID")
+            moderator_name = str(moderator) if moderator else "Unknown moderator"
+            moderator_id = getattr(moderator, "id", "Unknown ID")
+            reason = entry.reason or "No reason provided"
+
+            lines.extend(
+                [
+                    f"{index}. {target_name} ({target_id})",
+                    f"   Banned at: {entry.created_at.strftime('%Y-%m-%d %H:%M:%S UTC')}",
+                    f"   Banned by: {moderator_name} ({moderator_id})",
+                    f"   Reason: {reason}",
+                    "",
+                ]
+            )
+
+        return "\n".join(lines)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Mod_Detector(bot))
