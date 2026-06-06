@@ -44,7 +44,7 @@ class AMT(commands.Cog, name="AMT"):
             async for ban_entry in guild.bans():
                 banned_user_ids.add(ban_entry.user.id)
 
-            async for entry in guild.audit_logs(action=discord.AuditLogAction.ban):
+            async for entry in guild.audit_logs(limit=None, action=discord.AuditLogAction.ban):
                 user = entry.target
                 reason = entry.reason or ""
 
