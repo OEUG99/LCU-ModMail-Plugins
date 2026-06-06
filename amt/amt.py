@@ -2,15 +2,15 @@ import discord
 from discord.ext import commands
 
 
-class AdvanceModTools(commands.Cog, name="Advance Mod Tools"):
+class AMT(commands.Cog, name="AMT"):
     def __init__(self, bot):
         self.bot = bot
 
     @commands.command(name="unboop")
     @commands.has_permissions(ban_members=True, view_audit_log=True)
     async def check_unban(self, ctx):
-        """Unbans users if the audit log shows a ban reason containing 'advancemodtools' or 'boop' (case-insensitive)."""
-        await self._unban_by_reason_keywords(ctx, ["advancemodtools", "boop"])
+        """Unbans users if the audit log shows a ban reason containing 'amt' or 'boop' (case-insensitive)."""
+        await self._unban_by_reason_keywords(ctx, ["amt", "boop"])
 
     @commands.command(name="unstakesaucey")
     @commands.has_permissions(ban_members=True, view_audit_log=True)
@@ -80,4 +80,4 @@ class AdvanceModTools(commands.Cog, name="Advance Mod Tools"):
 
 
 async def setup(bot):
-    await bot.add_cog(AdvanceModTools(bot))
+    await bot.add_cog(AMT(bot))
