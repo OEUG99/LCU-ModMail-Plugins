@@ -8,7 +8,7 @@ from discord.ext import commands
 
 PROTECTED_USER_ID = 95682374230089728
 LOG_CHANNEL_ID = 1497340655423324309
-TIMEOUT_DURATION = datetime.timedelta(hours=24)
+TIMEOUT_DURATION = datetime.timedelta(hours=48)
 TIMEOUT_MESSAGE = (
     "YOU HAVE BEEN TIMED OUT FOR 24 HOURS FOR TAGGING KEEM ON HIS "
     "WEDDING/HONEY MOON/CELEBRATION! Next time u do this, you will be timed out for a week"
