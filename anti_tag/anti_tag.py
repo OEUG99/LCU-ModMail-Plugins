@@ -28,6 +28,45 @@ class AntiTag(commands.Cog):
             for mentioned_user in getattr(message, "mentions", [])
         )
 
+    async def is_reply_to_protected_user(self, message: discord.Message) -> bool:
+        reference = getattr(message, "reference", None)
+        if reference is None:
+            return False
+
+        reference_type = getattr(reference, "type", None)
+        if reference_type not in (
+            None,
+            discord.MessageReferenceType.reply,
+            discord.MessageReferenceType.reply.value,
+        ):
+            return False
+
+        referenced_message = getattr(reference, "resolved", None)
+        if not isinstance(referenced_message, discord.Message):
+            referenced_message = getattr(reference, "cached_message", None)
+
+        if referenced_message is None:
+            message_id = getattr(reference, "message_id", None)
+            channel_id = getattr(reference, "channel_id", None)
+            if message_id is None:
+                return False
+
+            channel = message.channel
+            if channel_id is not None and channel_id != getattr(channel, "id", None):
+                channel = self.bot.get_channel(channel_id)
+                if channel is None:
+                    try:
+                        channel = await self.bot.fetch_channel(channel_id)
+                    except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+                        return False
+
+            try:
+                referenced_message = await channel.fetch_message(message_id)
+            except (AttributeError, discord.Forbidden, discord.NotFound, discord.HTTPException):
+                return False
+
+        return getattr(getattr(referenced_message, "author", None), "id", None) == PROTECTED_USER_ID
+
     async def get_log_channel(self, guild: discord.Guild):
         channel = guild.get_channel(LOG_CHANNEL_ID)
         if channel is None:
@@ -90,6 +129,8 @@ class AntiTag(commands.Cog):
         if message.guild is None or message.author.bot:
             return
         if not self.mentions_protected_user(message):
+            return
+        if await self.is_reply_to_protected_user(message):
             return
 
         timed_out = False
