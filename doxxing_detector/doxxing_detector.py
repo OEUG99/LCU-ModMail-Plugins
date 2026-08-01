@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import importlib.metadata as importlib_metadata
 import re
+import sys
 import tempfile
 import discord
 from discord.ext import commands
@@ -193,6 +195,7 @@ class DoxxingDetector(commands.Cog):
         self._message_refetch_cache = {}
         self._attachment_ocr_cache = {}
         self._ocr_engine = None
+        self._ocr_dependency_error = None
 
     def get_log_channel(self, guild: discord.Guild | None = None):
         log_channel = guild.get_channel(LOG_CHANNEL_ID) if guild is not None else None
@@ -317,6 +320,12 @@ class DoxxingDetector(commands.Cog):
 
         await self.send_text_chunks(ctx, text)
 
+    @commands.command(name="ocrstatus")
+    @commands.has_permissions(manage_messages=True)
+    async def ocr_status(self, ctx: commands.Context):
+        """Report OCR dependency status for the running bot process."""
+        await self.send_text_chunks(ctx, self.ocr_dependency_report())
+
     @commands.command(name="killbot", aliases=["shutdownbot"])
     @commands.has_permissions(administrator=True)
     async def kill_bot(self, ctx: commands.Context):
@@ -339,15 +348,25 @@ class DoxxingDetector(commands.Cog):
         )
         await self.send_log_embed(embed, guild)
 
-    async def warn_missing_ocr_dependencies(self, guild: discord.Guild | None = None):
+    async def warn_missing_ocr_dependencies(
+        self,
+        error: Exception | None = None,
+        guild: discord.Guild | None = None,
+    ):
         if self._warned_missing_ocr_dependencies:
             return
         self._warned_missing_ocr_dependencies = True
+        if error is not None:
+            self._ocr_dependency_error = error
+        error_text = ""
+        if error is not None:
+            error_text = f"\nError: `{type(error).__name__}: {str(error)[:700]}`"
         embed = discord.Embed(
             title="Doxxing detector warning",
             description=(
-                "Image OCR is enabled in the scan path, but `rapidocr` and/or "
-                "`onnxruntime` is not installed. Image attachment text will not be scanned."
+                "Image OCR is enabled in the scan path, but no supported pip-only "
+                "OCR backend could be imported. Image attachment text will not be scanned."
+                f"{error_text}\nRun `ocrstatus` for package details."
             ),
             color=discord.Color.orange(),
             timestamp=discord.utils.utcnow(),
@@ -726,8 +745,8 @@ class DoxxingDetector(commands.Cog):
 
         try:
             ocr_engine = self.get_ocr_engine()
-        except ImportError:
-            await self.warn_missing_ocr_dependencies(guild)
+        except ImportError as exc:
+            await self.warn_missing_ocr_dependencies(exc, guild)
             return ""
 
         try:
@@ -752,10 +771,50 @@ class DoxxingDetector(commands.Cog):
 
     def get_ocr_engine(self):
         if self._ocr_engine is None:
-            from rapidocr import RapidOCR
+            RapidOCR = self.load_ocr_engine_class()
 
             self._ocr_engine = RapidOCR()
         return self._ocr_engine
+
+    @staticmethod
+    def load_ocr_engine_class():
+        errors = []
+        for module_name in ("rapidocr", "rapidocr_onnxruntime"):
+            try:
+                module = __import__(module_name, fromlist=["RapidOCR"])
+                return module.RapidOCR
+            except ImportError as exc:
+                errors.append(f"{module_name}: {exc}")
+        raise ImportError("; ".join(errors))
+
+    @staticmethod
+    def package_version(package_name: str) -> str:
+        try:
+            return importlib_metadata.version(package_name)
+        except importlib_metadata.PackageNotFoundError:
+            return "not installed"
+
+    def ocr_dependency_report(self) -> str:
+        lines = [
+            f"Python: {sys.version.split()[0]}",
+            f"Executable: {sys.executable}",
+            f"rapidocr: {self.package_version('rapidocr')}",
+            f"rapidocr-onnxruntime: {self.package_version('rapidocr-onnxruntime')}",
+            f"onnxruntime: {self.package_version('onnxruntime')}",
+        ]
+
+        try:
+            engine_class = self.load_ocr_engine_class()
+        except ImportError as exc:
+            lines.append(f"OCR import: FAILED - {exc}")
+        else:
+            lines.append(f"OCR import: OK - {engine_class.__module__}.{engine_class.__name__}")
+
+        if self._ocr_dependency_error is not None:
+            error = self._ocr_dependency_error
+            lines.append(f"Last OCR import error: {type(error).__name__}: {error}")
+
+        return "\n".join(lines)
 
     @staticmethod
     def image_bytes_to_text(image_bytes: bytes, ocr_engine) -> str:

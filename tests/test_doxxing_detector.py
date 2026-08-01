@@ -395,8 +395,31 @@ class DoxxingDetectorTest(unittest.TestCase):
 
         self.assertEqual(DoxxingDetector.rapid_ocr_text(result), "first line\nsecond line")
 
+    def test_ocr_dependency_report_includes_package_status(self):
+        detector = DoxxingDetector(SimpleNamespace())
+
+        report = detector.ocr_dependency_report()
+
+        self.assertIn("Python:", report)
+        self.assertIn("rapidocr:", report)
+        self.assertIn("onnxruntime:", report)
+
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_ocr_status_command_reports_dependency_status(self):
+        sent_messages = []
+
+        async def send_message(content):
+            sent_messages.append(content)
+
+        detector = DoxxingDetector(SimpleNamespace())
+        ctx = SimpleNamespace(send=send_message)
+
+        await DoxxingDetector.ocr_status.callback(detector, ctx)
+
+        self.assertEqual(len(sent_messages), 1)
+        self.assertIn("Python:", sent_messages[0])
+
     async def test_ocr_image_command_returns_attachment_text(self):
         sent_messages = []
 
