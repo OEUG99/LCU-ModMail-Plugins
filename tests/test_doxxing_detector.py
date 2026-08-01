@@ -375,7 +375,10 @@ class DoxxingDetectorTest(unittest.TestCase):
                     test_case.assertEqual(image_file.read(), image_bytes)
                 return "parsed text"
 
-        text = DoxxingDetector.image_bytes_to_text(image_bytes, FakeOcrEngine())
+        detector = DoxxingDetector(SimpleNamespace())
+        detector._ocr_engine = FakeOcrEngine()
+
+        text = detector.image_bytes_to_text(image_bytes)
 
         self.assertEqual(text, "parsed text")
         self.assertEqual(len(ocr_paths), 1)

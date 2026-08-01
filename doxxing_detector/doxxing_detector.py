@@ -212,6 +212,7 @@ class DoxxingDetector(commands.Cog):
         self._message_refetch_cache = {}
         self._attachment_ocr_cache = {}
         self._ocr_engine = None
+        self._ocr_engine_lock = asyncio.Lock()
         self._ocr_dependency_error = None
 
     def get_log_channel(self, guild: discord.Guild | None = None):
@@ -761,22 +762,13 @@ class DoxxingDetector(commands.Cog):
             return self._attachment_ocr_cache[cache_key]
 
         try:
-            ocr_engine = self.get_ocr_engine()
-        except ImportError as exc:
-            await self.warn_missing_ocr_dependencies(exc, guild)
-            return ""
-
-        try:
             image_bytes = await read_attachment()
             if not image_bytes:
                 return ""
-            loop = asyncio.get_running_loop()
-            text = await loop.run_in_executor(
-                None,
-                self.image_bytes_to_text,
-                image_bytes,
-                ocr_engine,
-            )
+            text = await self.ocr_image_bytes(image_bytes)
+        except ImportError as exc:
+            await self.warn_missing_ocr_dependencies(exc, guild)
+            return ""
         except Exception as exc:
             await self.warn_ocr_failure(attachment, exc, guild)
             return ""
@@ -790,6 +782,14 @@ class DoxxingDetector(commands.Cog):
         if self._ocr_engine is None:
             self._ocr_engine = self.load_ocr_engine()
         return self._ocr_engine
+
+    async def ocr_image_bytes(self, image_bytes: bytes) -> str:
+        loop = asyncio.get_running_loop()
+        if self._ocr_engine is None:
+            async with self._ocr_engine_lock:
+                if self._ocr_engine is None:
+                    self._ocr_engine = await loop.run_in_executor(None, self.load_ocr_engine)
+        return await loop.run_in_executor(None, self.image_bytes_to_text, image_bytes)
 
     @staticmethod
     def load_ocr_engine():
@@ -874,12 +874,11 @@ class DoxxingDetector(commands.Cog):
                 errors.append(f"{module_name}: {exc}")
         raise ImportError("; ".join(errors))
 
-    @staticmethod
-    def image_bytes_to_text(image_bytes: bytes, ocr_engine) -> str:
+    def image_bytes_to_text(self, image_bytes: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
             image_file.write(image_bytes)
             image_file.flush()
-            return ocr_engine.image_to_text(image_file.name)
+            return self.get_ocr_engine().image_to_text(image_file.name)
 
     @staticmethod
     def rapid_ocr_text(result) -> str:
