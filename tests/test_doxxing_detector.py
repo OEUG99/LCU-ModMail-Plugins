@@ -364,6 +364,58 @@ class DoxxingDetectorTest(unittest.TestCase):
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_ocr_image_command_returns_attachment_text(self):
+        sent_messages = []
+
+        async def send_message(content):
+            sent_messages.append(content)
+
+        class FakeDetector(DoxxingDetector):
+            async def ocr_attachment_text(self, attachment, guild=None):
+                return "hello from image"
+
+        detector = FakeDetector(SimpleNamespace())
+        ctx = SimpleNamespace(
+            send=send_message,
+            guild=SimpleNamespace(),
+            message=SimpleNamespace(
+                attachments=[
+                    SimpleNamespace(
+                        filename="contact.png",
+                        content_type="image/png",
+                    ),
+                ],
+            ),
+        )
+
+        await DoxxingDetector.ocr_image.callback(detector, ctx)
+
+        self.assertEqual(sent_messages, ["```text\nhello from image\n```"])
+
+    async def test_ocr_image_command_requires_image_attachment(self):
+        sent_messages = []
+
+        async def send_message(content):
+            sent_messages.append(content)
+
+        detector = DoxxingDetector(SimpleNamespace())
+        ctx = SimpleNamespace(
+            send=send_message,
+            guild=SimpleNamespace(),
+            message=SimpleNamespace(
+                attachments=[
+                    SimpleNamespace(
+                        filename="notes.txt",
+                        content_type="text/plain",
+                    ),
+                ],
+            ),
+        )
+
+        await DoxxingDetector.ocr_image.callback(detector, ctx)
+
+        self.assertEqual(sent_messages, ["Attach an image to this command to run OCR."])
+
     async def test_kill_bot_command_sends_confirmation_and_closes_bot(self):
         sent_messages = []
         closed = []

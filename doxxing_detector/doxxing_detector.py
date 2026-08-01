@@ -296,6 +296,26 @@ class DoxxingDetector(commands.Cog):
         )
         await self.send_text_chunks(ctx, report)
 
+    @commands.command(name="ocr", aliases=["imageocr"])
+    @commands.has_permissions(manage_messages=True)
+    async def ocr_image(self, ctx: commands.Context):
+        """Run OCR on an attached image and return the extracted text."""
+        attachments = self.sequence_field(ctx.message, "attachments")
+        image_attachment = next(
+            (attachment for attachment in attachments if self.is_image_attachment(attachment)),
+            None,
+        )
+        if image_attachment is None:
+            await ctx.send("Attach an image to this command to run OCR.")
+            return
+
+        text = await self.ocr_attachment_text(image_attachment, ctx.guild)
+        if not text:
+            await ctx.send("No OCR text was found, or OCR failed. Check the doxxing detector warning log.")
+            return
+
+        await self.send_text_chunks(ctx, text)
+
     @commands.command(name="killbot", aliases=["shutdownbot"])
     @commands.has_permissions(administrator=True)
     async def kill_bot(self, ctx: commands.Context):
