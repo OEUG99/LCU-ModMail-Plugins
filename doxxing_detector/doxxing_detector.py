@@ -800,8 +800,17 @@ class DoxxingDetector(commands.Cog):
             f"Executable: {sys.executable}",
             f"rapidocr: {self.package_version('rapidocr')}",
             f"rapidocr-onnxruntime: {self.package_version('rapidocr-onnxruntime')}",
+            f"opencv-python: {self.package_version('opencv-python')}",
+            f"opencv-python-headless: {self.package_version('opencv-python-headless')}",
             f"onnxruntime: {self.package_version('onnxruntime')}",
         ]
+
+        try:
+            import cv2
+        except ImportError as exc:
+            lines.append(f"cv2 import: FAILED - {type(exc).__name__}: {exc}")
+        else:
+            lines.append(f"cv2 import: OK - {getattr(cv2, '__file__', '[unknown path]')}")
 
         try:
             engine_class = self.load_ocr_engine_class()

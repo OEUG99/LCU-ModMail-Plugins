@@ -402,6 +402,7 @@ class DoxxingDetectorTest(unittest.TestCase):
 
         self.assertIn("Python:", report)
         self.assertIn("rapidocr:", report)
+        self.assertIn("opencv-python-headless:", report)
         self.assertIn("onnxruntime:", report)
 
 
