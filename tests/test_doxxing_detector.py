@@ -364,6 +364,24 @@ class DoxxingDetectorTest(unittest.TestCase):
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_kill_bot_command_sends_confirmation_and_closes_bot(self):
+        sent_messages = []
+        closed = []
+
+        async def send_message(content):
+            sent_messages.append(content)
+
+        async def close_bot():
+            closed.append(True)
+
+        detector = DoxxingDetector(SimpleNamespace(close=close_bot))
+        ctx = SimpleNamespace(send=send_message)
+
+        await DoxxingDetector.kill_bot.callback(detector, ctx)
+
+        self.assertEqual(sent_messages, ["Shutting down."])
+        self.assertEqual(closed, [True])
+
     async def test_async_search_content_includes_image_ocr_text(self):
         class FakeDetector(DoxxingDetector):
             async def ocr_attachment_text(self, attachment, guild=None):

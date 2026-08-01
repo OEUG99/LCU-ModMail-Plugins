@@ -296,6 +296,13 @@ class DoxxingDetector(commands.Cog):
         )
         await self.send_text_chunks(ctx, report)
 
+    @commands.command(name="killbot", aliases=["shutdownbot"])
+    @commands.has_permissions(administrator=True)
+    async def kill_bot(self, ctx: commands.Context):
+        """Shut down the bot. Server administrators only."""
+        await ctx.send("Shutting down.")
+        await self.bot.close()
+
     async def warn_missing_message_content_intent(self, guild: discord.Guild | None = None):
         if self._warned_missing_message_content_intent:
             return
