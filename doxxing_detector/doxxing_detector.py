@@ -182,6 +182,23 @@ HOUSING_DESCRIPTION_WORDS = {
 }
 
 
+class EasyOcrEngine:
+    def __init__(self, reader):
+        self.reader = reader
+
+    def image_to_text(self, image_path: str) -> str:
+        results = self.reader.readtext(image_path, detail=0, paragraph=False)
+        return "\n".join(text for text in results if text)
+
+
+class RapidOcrEngine:
+    def __init__(self, engine):
+        self.engine = engine
+
+    def image_to_text(self, image_path: str) -> str:
+        return DoxxingDetector.rapid_ocr_text(self.engine(image_path))
+
+
 class DoxxingDetector(commands.Cog):
     """Delete messages containing likely private info and timeout the sender."""
 
@@ -771,18 +788,29 @@ class DoxxingDetector(commands.Cog):
 
     def get_ocr_engine(self):
         if self._ocr_engine is None:
-            RapidOCR = self.load_ocr_engine_class()
-
-            self._ocr_engine = RapidOCR()
+            self._ocr_engine = self.load_ocr_engine()
         return self._ocr_engine
 
     @staticmethod
-    def load_ocr_engine_class():
+    def load_ocr_engine():
         errors = []
+        try:
+            from easyocr import Reader
+
+            return EasyOcrEngine(
+                Reader(
+                    ["en"],
+                    gpu=False,
+                    model_storage_directory=f"{tempfile.gettempdir()}/easyocr",
+                )
+            )
+        except ImportError as exc:
+            errors.append(f"easyocr: {exc}")
+
         for module_name in ("rapidocr", "rapidocr_onnxruntime"):
             try:
                 module = __import__(module_name, fromlist=["RapidOCR"])
-                return module.RapidOCR
+                return RapidOcrEngine(module.RapidOCR())
             except ImportError as exc:
                 errors.append(f"{module_name}: {exc}")
         raise ImportError("; ".join(errors))
@@ -798,6 +826,9 @@ class DoxxingDetector(commands.Cog):
         lines = [
             f"Python: {sys.version.split()[0]}",
             f"Executable: {sys.executable}",
+            f"easyocr: {self.package_version('easyocr')}",
+            f"torch: {self.package_version('torch')}",
+            f"torchvision: {self.package_version('torchvision')}",
             f"rapidocr: {self.package_version('rapidocr')}",
             f"rapidocr-onnxruntime: {self.package_version('rapidocr-onnxruntime')}",
             f"opencv-python: {self.package_version('opencv-python')}",
@@ -813,11 +844,11 @@ class DoxxingDetector(commands.Cog):
             lines.append(f"cv2 import: OK - {getattr(cv2, '__file__', '[unknown path]')}")
 
         try:
-            engine_class = self.load_ocr_engine_class()
+            backend_name = self.ocr_backend_import_status()
         except ImportError as exc:
             lines.append(f"OCR import: FAILED - {exc}")
         else:
-            lines.append(f"OCR import: OK - {engine_class.__module__}.{engine_class.__name__}")
+            lines.append(f"OCR import: OK - {backend_name}")
 
         if self._ocr_dependency_error is not None:
             error = self._ocr_dependency_error
@@ -826,12 +857,29 @@ class DoxxingDetector(commands.Cog):
         return "\n".join(lines)
 
     @staticmethod
+    def ocr_backend_import_status() -> str:
+        errors = []
+        try:
+            import easyocr
+
+            return f"easyocr {getattr(easyocr, '__version__', '[unknown version]')}"
+        except ImportError as exc:
+            errors.append(f"easyocr: {exc}")
+
+        for module_name in ("rapidocr", "rapidocr_onnxruntime"):
+            try:
+                __import__(module_name, fromlist=["RapidOCR"])
+                return module_name
+            except ImportError as exc:
+                errors.append(f"{module_name}: {exc}")
+        raise ImportError("; ".join(errors))
+
+    @staticmethod
     def image_bytes_to_text(image_bytes: bytes, ocr_engine) -> str:
         with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
             image_file.write(image_bytes)
             image_file.flush()
-            result = ocr_engine(image_file.name)
-        return DoxxingDetector.rapid_ocr_text(result)
+            return ocr_engine.image_to_text(image_file.name)
 
     @staticmethod
     def rapid_ocr_text(result) -> str:

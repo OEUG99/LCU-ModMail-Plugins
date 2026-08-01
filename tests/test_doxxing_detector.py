@@ -8,6 +8,7 @@ from doxxing_detector.doxxing_detector import (
     ALWAYS_DELETE_FORWARD_ROLE_IDS,
     AUTO_FLAG_DM,
     DoxxingDetector,
+    EasyOcrEngine,
     EXEMPT_FORWARD_SOURCE_CHANNEL_IDS,
     EXEMPT_ROLE_IDS,
     FORWARD_SOURCE_GUILD_ID,
@@ -368,16 +369,29 @@ class DoxxingDetectorTest(unittest.TestCase):
         test_case = self
 
         class FakeOcrEngine:
-            def __call__(self, image_path):
+            def image_to_text(self, image_path):
                 ocr_paths.append(image_path)
                 with open(image_path, "rb") as image_file:
                     test_case.assertEqual(image_file.read(), image_bytes)
-                return SimpleNamespace(txts=("parsed text",))
+                return "parsed text"
 
         text = DoxxingDetector.image_bytes_to_text(image_bytes, FakeOcrEngine())
 
         self.assertEqual(text, "parsed text")
         self.assertEqual(len(ocr_paths), 1)
+
+    def test_easy_ocr_engine_reads_text_without_detail(self):
+        calls = []
+
+        class FakeReader:
+            def readtext(self, image_path, detail=1, paragraph=True):
+                calls.append((image_path, detail, paragraph))
+                return ["first line", "", "second line"]
+
+        text = EasyOcrEngine(FakeReader()).image_to_text("image.png")
+
+        self.assertEqual(text, "first line\nsecond line")
+        self.assertEqual(calls, [("image.png", 0, False)])
 
     def test_rapid_ocr_text_accepts_current_output_object(self):
         result = SimpleNamespace(txts=("first line", "", "second line"))
@@ -401,9 +415,9 @@ class DoxxingDetectorTest(unittest.TestCase):
         report = detector.ocr_dependency_report()
 
         self.assertIn("Python:", report)
-        self.assertIn("rapidocr:", report)
+        self.assertIn("easyocr:", report)
+        self.assertIn("torch:", report)
         self.assertIn("opencv-python-headless:", report)
-        self.assertIn("onnxruntime:", report)
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
