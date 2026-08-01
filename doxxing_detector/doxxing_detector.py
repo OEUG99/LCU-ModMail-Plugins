@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import datetime
 import importlib.metadata as importlib_metadata
+import os
 import re
 import sys
 import tempfile
@@ -86,6 +88,7 @@ IMAGE_ATTACHMENT_CONTENT_TYPES = {
     "image/webp",
 }
 MAX_OCR_ATTACHMENT_BYTES = 8 * 1024 * 1024
+OCR_TIMEOUT_SECONDS = 45
 
 STREET_SUFFIX_RE = (
     r"street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|circle|cir|"
@@ -213,6 +216,10 @@ class DoxxingDetector(commands.Cog):
         self._attachment_ocr_cache = {}
         self._ocr_engine = None
         self._ocr_engine_lock = asyncio.Lock()
+        self._ocr_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="doxxing-ocr",
+        )
         self._ocr_dependency_error = None
 
     def get_log_channel(self, guild: discord.Guild | None = None):
@@ -220,6 +227,9 @@ class DoxxingDetector(commands.Cog):
         if log_channel is None:
             log_channel = self.bot.get_channel(LOG_CHANNEL_ID)
         return log_channel
+
+    def cog_unload(self):
+        self._ocr_executor.shutdown(wait=False, cancel_futures=True)
 
     async def send_log_embed(self, embed: discord.Embed, guild: discord.Guild | None = None):
         log_channel = self.get_log_channel(guild)
@@ -769,6 +779,13 @@ class DoxxingDetector(commands.Cog):
         except ImportError as exc:
             await self.warn_missing_ocr_dependencies(exc, guild)
             return ""
+        except asyncio.TimeoutError:
+            await self.warn_ocr_failure(
+                attachment,
+                TimeoutError(f"OCR exceeded {OCR_TIMEOUT_SECONDS} seconds."),
+                guild,
+            )
+            return ""
         except Exception as exc:
             await self.warn_ocr_failure(attachment, exc, guild)
             return ""
@@ -788,14 +805,30 @@ class DoxxingDetector(commands.Cog):
         if self._ocr_engine is None:
             async with self._ocr_engine_lock:
                 if self._ocr_engine is None:
-                    self._ocr_engine = await loop.run_in_executor(None, self.load_ocr_engine)
-        return await loop.run_in_executor(None, self.image_bytes_to_text, image_bytes)
+                    self._ocr_engine = await asyncio.wait_for(
+                        loop.run_in_executor(self._ocr_executor, self.load_ocr_engine),
+                        timeout=OCR_TIMEOUT_SECONDS,
+                    )
+        return await asyncio.wait_for(
+            loop.run_in_executor(self._ocr_executor, self.image_bytes_to_text, image_bytes),
+            timeout=OCR_TIMEOUT_SECONDS,
+        )
 
     @staticmethod
     def load_ocr_engine():
         errors = []
         try:
             from easyocr import Reader
+            try:
+                import torch
+
+                torch.set_num_threads(1)
+                torch.set_num_interop_threads(1)
+            except (ImportError, RuntimeError):
+                pass
+
+            os.environ.setdefault("OMP_NUM_THREADS", "1")
+            os.environ.setdefault("MKL_NUM_THREADS", "1")
 
             return EasyOcrEngine(
                 Reader(

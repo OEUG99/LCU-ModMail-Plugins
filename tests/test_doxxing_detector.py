@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 import datetime
 from types import SimpleNamespace
@@ -438,6 +439,57 @@ class DoxxingDetectorTest(unittest.TestCase):
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_ocr_image_bytes_loads_engine_and_reads_text(self):
+        calls = []
+
+        class FakeEngine:
+            def image_to_text(self, image_path):
+                calls.append(("ocr", image_path))
+                return "parsed text"
+
+        class FakeDetector(DoxxingDetector):
+            @staticmethod
+            def load_ocr_engine():
+                calls.append(("load",))
+                return FakeEngine()
+
+        detector = FakeDetector(SimpleNamespace())
+
+        text = await detector.ocr_image_bytes(b"fake image")
+
+        self.assertEqual(text, "parsed text")
+        self.assertEqual(calls[0], ("load",))
+        self.assertEqual(calls[1][0], "ocr")
+
+    async def test_ocr_attachment_timeout_is_logged_without_raising(self):
+        sent_embeds = []
+
+        async def send_log(embed):
+            sent_embeds.append(embed)
+
+        async def read_attachment():
+            return b"fake image"
+
+        class FakeDetector(DoxxingDetector):
+            async def ocr_image_bytes(self, image_bytes):
+                raise asyncio.TimeoutError
+
+        log_channel = SimpleNamespace(send=send_log)
+        guild = SimpleNamespace(get_channel=lambda channel_id: log_channel)
+        detector = FakeDetector(SimpleNamespace(get_channel=lambda channel_id: log_channel))
+        attachment = SimpleNamespace(
+            filename="contact.png",
+            content_type="image/png",
+            size=1234,
+            read=read_attachment,
+        )
+
+        text = await detector.ocr_attachment_text(attachment, guild)
+
+        self.assertEqual(text, "")
+        self.assertEqual(len(sent_embeds), 1)
+        self.assertIn("exceeded", sent_embeds[0].description)
+
     async def test_ocr_status_command_reports_dependency_status(self):
         sent_messages = []
 
