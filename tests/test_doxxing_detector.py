@@ -362,6 +362,47 @@ class DoxxingDetectorTest(unittest.TestCase):
             )
         )
 
+    def test_image_bytes_to_text_normalizes_image_before_ocr(self):
+        calls = []
+        normalized_image = SimpleNamespace(name="normalized")
+
+        class FakeImage:
+            def __enter__(self):
+                calls.append("enter")
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                calls.append("exit")
+
+            def load(self):
+                calls.append("load")
+
+            def convert(self, mode):
+                calls.append(("convert", mode))
+                return normalized_image
+
+        image_module = SimpleNamespace(open=lambda image_file: FakeImage())
+
+        class FakePytesseract:
+            @staticmethod
+            def image_to_string(image):
+                calls.append(("ocr", image))
+                return "parsed text"
+
+        text = DoxxingDetector.image_bytes_to_text(b"fake image", FakePytesseract, image_module)
+
+        self.assertEqual(text, "parsed text")
+        self.assertEqual(
+            calls,
+            [
+                "enter",
+                "load",
+                ("convert", "RGB"),
+                "exit",
+                ("ocr", normalized_image),
+            ],
+        )
+
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
     async def test_ocr_image_command_returns_attachment_text(self):

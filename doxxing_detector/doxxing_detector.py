@@ -754,7 +754,9 @@ class DoxxingDetector(commands.Cog):
     @staticmethod
     def image_bytes_to_text(image_bytes: bytes, pytesseract, image_module) -> str:
         with image_module.open(io.BytesIO(image_bytes)) as image:
-            return pytesseract.image_to_string(image) or ""
+            image.load()
+            normalized_image = image.convert("RGB")
+        return pytesseract.image_to_string(normalized_image) or ""
 
     async def async_message_search_content(
         self,
