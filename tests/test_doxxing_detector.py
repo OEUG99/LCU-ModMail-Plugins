@@ -362,46 +362,38 @@ class DoxxingDetectorTest(unittest.TestCase):
             )
         )
 
-    def test_image_bytes_to_text_normalizes_image_before_ocr(self):
-        calls = []
-        normalized_image = SimpleNamespace(name="normalized")
+    def test_image_bytes_to_text_passes_temp_file_path_to_ocr(self):
+        image_bytes = b"fake image"
+        ocr_paths = []
+        test_case = self
 
-        class FakeImage:
-            def __enter__(self):
-                calls.append("enter")
-                return self
+        class FakeOcrEngine:
+            def __call__(self, image_path):
+                ocr_paths.append(image_path)
+                with open(image_path, "rb") as image_file:
+                    test_case.assertEqual(image_file.read(), image_bytes)
+                return SimpleNamespace(txts=("parsed text",))
 
-            def __exit__(self, exc_type, exc, traceback):
-                calls.append("exit")
-
-            def load(self):
-                calls.append("load")
-
-            def convert(self, mode):
-                calls.append(("convert", mode))
-                return normalized_image
-
-        image_module = SimpleNamespace(open=lambda image_file: FakeImage())
-
-        class FakePytesseract:
-            @staticmethod
-            def image_to_string(image):
-                calls.append(("ocr", image))
-                return "parsed text"
-
-        text = DoxxingDetector.image_bytes_to_text(b"fake image", FakePytesseract, image_module)
+        text = DoxxingDetector.image_bytes_to_text(image_bytes, FakeOcrEngine())
 
         self.assertEqual(text, "parsed text")
-        self.assertEqual(
-            calls,
+        self.assertEqual(len(ocr_paths), 1)
+
+    def test_rapid_ocr_text_accepts_current_output_object(self):
+        result = SimpleNamespace(txts=("first line", "", "second line"))
+
+        self.assertEqual(DoxxingDetector.rapid_ocr_text(result), "first line\nsecond line")
+
+    def test_rapid_ocr_text_accepts_legacy_tuple_output(self):
+        result = (
             [
-                "enter",
-                "load",
-                ("convert", "RGB"),
-                "exit",
-                ("ocr", normalized_image),
+                [[[0, 0], [1, 0], [1, 1], [0, 1]], "first line", 0.99],
+                [[[0, 2], [1, 2], [1, 3], [0, 3]], "second line", 0.98],
             ],
+            0.1,
         )
+
+        self.assertEqual(DoxxingDetector.rapid_ocr_text(result), "first line\nsecond line")
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):

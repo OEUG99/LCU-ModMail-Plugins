@@ -1,6 +1,2 @@
-Pillow>=10,<12
-pytesseract>=0.3.13,<1
-
-# pytesseract also requires the system Tesseract OCR binary.
-# macOS: brew install tesseract
-# Debian/Ubuntu: apt-get install -y tesseract-ocr
+rapidocr>=3.9,<4
+onnxruntime>=1.20,<2

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import io
 import re
+import tempfile
 import discord
 from discord.ext import commands
 
@@ -192,6 +192,7 @@ class DoxxingDetector(commands.Cog):
         self._reference_fetch_cache = {}
         self._message_refetch_cache = {}
         self._attachment_ocr_cache = {}
+        self._ocr_engine = None
 
     def get_log_channel(self, guild: discord.Guild | None = None):
         log_channel = guild.get_channel(LOG_CHANNEL_ID) if guild is not None else None
@@ -345,8 +346,8 @@ class DoxxingDetector(commands.Cog):
         embed = discord.Embed(
             title="Doxxing detector warning",
             description=(
-                "Image OCR is enabled in the scan path, but `pytesseract` and/or "
-                "`Pillow` is not installed. Image attachment text will not be scanned."
+                "Image OCR is enabled in the scan path, but `rapidocr` and/or "
+                "`onnxruntime` is not installed. Image attachment text will not be scanned."
             ),
             color=discord.Color.orange(),
             timestamp=discord.utils.utcnow(),
@@ -724,8 +725,7 @@ class DoxxingDetector(commands.Cog):
             return self._attachment_ocr_cache[cache_key]
 
         try:
-            import pytesseract
-            from PIL import Image
+            ocr_engine = self.get_ocr_engine()
         except ImportError:
             await self.warn_missing_ocr_dependencies(guild)
             return ""
@@ -739,8 +739,7 @@ class DoxxingDetector(commands.Cog):
                 None,
                 self.image_bytes_to_text,
                 image_bytes,
-                pytesseract,
-                Image,
+                ocr_engine,
             )
         except Exception as exc:
             await self.warn_ocr_failure(attachment, exc, guild)
@@ -751,12 +750,44 @@ class DoxxingDetector(commands.Cog):
             self._attachment_ocr_cache[cache_key] = text
         return text
 
+    def get_ocr_engine(self):
+        if self._ocr_engine is None:
+            from rapidocr import RapidOCR
+
+            self._ocr_engine = RapidOCR()
+        return self._ocr_engine
+
     @staticmethod
-    def image_bytes_to_text(image_bytes: bytes, pytesseract, image_module) -> str:
-        with image_module.open(io.BytesIO(image_bytes)) as image:
-            image.load()
-            normalized_image = image.convert("RGB")
-        return pytesseract.image_to_string(normalized_image) or ""
+    def image_bytes_to_text(image_bytes: bytes, ocr_engine) -> str:
+        with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
+            image_file.write(image_bytes)
+            image_file.flush()
+            result = ocr_engine(image_file.name)
+        return DoxxingDetector.rapid_ocr_text(result)
+
+    @staticmethod
+    def rapid_ocr_text(result) -> str:
+        if result is None:
+            return ""
+
+        if isinstance(result, tuple):
+            result = result[0] if result else None
+            if result is None:
+                return ""
+
+        texts = getattr(result, "txts", None)
+        if texts is not None:
+            return "\n".join(text for text in texts if text)
+
+        lines = []
+        for item in result or []:
+            if not isinstance(item, (list, tuple)):
+                continue
+            if len(item) >= 2 and isinstance(item[1], str):
+                lines.append(item[1])
+            elif item and isinstance(item[0], str):
+                lines.append(item[0])
+        return "\n".join(lines)
 
     async def async_message_search_content(
         self,
