@@ -382,6 +382,27 @@ class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sent_messages, ["Shutting down."])
         self.assertEqual(closed, [True])
 
+    async def test_ocr_failure_warning_includes_attachment_and_error(self):
+        sent_embeds = []
+
+        async def send_log(embed):
+            sent_embeds.append(embed)
+
+        log_channel = SimpleNamespace(send=send_log)
+        guild = SimpleNamespace(get_channel=lambda channel_id: log_channel)
+        detector = DoxxingDetector(SimpleNamespace(get_channel=lambda channel_id: log_channel))
+        attachment = SimpleNamespace(
+            filename="contact.webp",
+            content_type="image/webp",
+            size=1234,
+        )
+
+        await detector.warn_ocr_failure(attachment, RuntimeError("tesseract missing"), guild)
+
+        self.assertEqual(len(sent_embeds), 1)
+        self.assertIn("contact.webp", sent_embeds[0].description)
+        self.assertIn("RuntimeError: tesseract missing", sent_embeds[0].description)
+
     async def test_async_search_content_includes_image_ocr_text(self):
         class FakeDetector(DoxxingDetector):
             async def ocr_attachment_text(self, attachment, guild=None):

@@ -333,13 +333,27 @@ class DoxxingDetector(commands.Cog):
         )
         await self.send_log_embed(embed, guild)
 
-    async def warn_ocr_failure(self, guild: discord.Guild | None = None):
+    async def warn_ocr_failure(
+        self,
+        attachment: discord.Attachment | dict,
+        error: Exception,
+        guild: discord.Guild | None = None,
+    ):
         if self._warned_ocr_failure:
             return
         self._warned_ocr_failure = True
+        filename = self.field_value(attachment, "filename", "[unknown]")
+        content_type = self.field_value(attachment, "content_type", "[unknown]")
+        size = self.field_value(attachment, "size", "[unknown]")
         embed = discord.Embed(
             title="Doxxing detector warning",
-            description="Image OCR failed for an attachment. Text message scanning is still running.",
+            description=(
+                "Image OCR failed for an attachment. Text message scanning is still running.\n"
+                f"Attachment: `{filename}`\n"
+                f"Content type: `{content_type}`\n"
+                f"Size: `{size}`\n"
+                f"Error: `{type(error).__name__}: {str(error)[:700]}`"
+            ),
             color=discord.Color.orange(),
             timestamp=discord.utils.utcnow(),
         )
@@ -708,8 +722,8 @@ class DoxxingDetector(commands.Cog):
                 pytesseract,
                 Image,
             )
-        except Exception:
-            await self.warn_ocr_failure(guild)
+        except Exception as exc:
+            await self.warn_ocr_failure(attachment, exc, guild)
             return ""
 
         text = " ".join(text.split())
