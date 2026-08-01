@@ -1,1 +1,2 @@
-easyocr>=1.7,<2
+pytesseract>=0.3.13,<1
+Pillow>=10,<12

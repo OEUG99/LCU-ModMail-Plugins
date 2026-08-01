@@ -6,6 +6,7 @@ import datetime
 import importlib.metadata as importlib_metadata
 import os
 import re
+import shutil
 import sys
 import tempfile
 import discord
@@ -185,21 +186,15 @@ HOUSING_DESCRIPTION_WORDS = {
 }
 
 
-class EasyOcrEngine:
-    def __init__(self, reader):
-        self.reader = reader
+class TesseractOcrEngine:
+    def __init__(self, pytesseract_module):
+        self.pytesseract = pytesseract_module
+        tesseract_cmd = shutil.which("tesseract") or "/app/.apt/usr/bin/tesseract"
+        if tesseract_cmd:
+            self.pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
 
     def image_to_text(self, image_path: str) -> str:
-        results = self.reader.readtext(image_path, detail=0, paragraph=False)
-        return "\n".join(text for text in results if text)
-
-
-class RapidOcrEngine:
-    def __init__(self, engine):
-        self.engine = engine
-
-    def image_to_text(self, image_path: str) -> str:
-        return DoxxingDetector.rapid_ocr_text(self.engine(image_path))
+        return self.pytesseract.image_to_string(image_path, config="--psm 6") or ""
 
 
 class DoxxingDetector(commands.Cog):
@@ -392,8 +387,8 @@ class DoxxingDetector(commands.Cog):
         embed = discord.Embed(
             title="Doxxing detector warning",
             description=(
-                "Image OCR is enabled in the scan path, but no supported pip-only "
-                "OCR backend could be imported. Image attachment text will not be scanned."
+                "Image OCR is enabled in the scan path, but pytesseract could not be imported. "
+                "Image attachment text will not be scanned."
                 f"{error_text}\nRun `ocrstatus` for package details."
             ),
             color=discord.Color.orange(),
@@ -816,37 +811,11 @@ class DoxxingDetector(commands.Cog):
 
     @staticmethod
     def load_ocr_engine():
-        errors = []
         try:
-            from easyocr import Reader
-            try:
-                import torch
-
-                torch.set_num_threads(1)
-                torch.set_num_interop_threads(1)
-            except (ImportError, RuntimeError):
-                pass
-
-            os.environ.setdefault("OMP_NUM_THREADS", "1")
-            os.environ.setdefault("MKL_NUM_THREADS", "1")
-
-            return EasyOcrEngine(
-                Reader(
-                    ["en"],
-                    gpu=False,
-                    model_storage_directory=f"{tempfile.gettempdir()}/easyocr",
-                )
-            )
+            import pytesseract
         except ImportError as exc:
-            errors.append(f"easyocr: {exc}")
-
-        for module_name in ("rapidocr", "rapidocr_onnxruntime"):
-            try:
-                module = __import__(module_name, fromlist=["RapidOCR"])
-                return RapidOcrEngine(module.RapidOCR())
-            except ImportError as exc:
-                errors.append(f"{module_name}: {exc}")
-        raise ImportError("; ".join(errors))
+            raise ImportError(f"pytesseract: {exc}") from exc
+        return TesseractOcrEngine(pytesseract)
 
     @staticmethod
     def package_version(package_name: str) -> str:
@@ -859,22 +828,18 @@ class DoxxingDetector(commands.Cog):
         lines = [
             f"Python: {sys.version.split()[0]}",
             f"Executable: {sys.executable}",
-            f"easyocr: {self.package_version('easyocr')}",
-            f"torch: {self.package_version('torch')}",
-            f"torchvision: {self.package_version('torchvision')}",
-            f"rapidocr: {self.package_version('rapidocr')}",
-            f"rapidocr-onnxruntime: {self.package_version('rapidocr-onnxruntime')}",
-            f"opencv-python: {self.package_version('opencv-python')}",
-            f"opencv-python-headless: {self.package_version('opencv-python-headless')}",
-            f"onnxruntime: {self.package_version('onnxruntime')}",
+            f"pytesseract: {self.package_version('pytesseract')}",
+            f"Pillow: {self.package_version('Pillow')}",
+            f"tesseract: {shutil.which('tesseract') or '[not on PATH]'}",
+            f"heroku tesseract: {'present' if os.path.exists('/app/.apt/usr/bin/tesseract') else 'missing'}",
         ]
 
         try:
-            import cv2
+            import pytesseract
         except ImportError as exc:
-            lines.append(f"cv2 import: FAILED - {type(exc).__name__}: {exc}")
+            lines.append(f"pytesseract import: FAILED - {type(exc).__name__}: {exc}")
         else:
-            lines.append(f"cv2 import: OK - {getattr(cv2, '__file__', '[unknown path]')}")
+            lines.append(f"pytesseract import: OK - {getattr(pytesseract, '__file__', '[unknown path]')}")
 
         try:
             backend_name = self.ocr_backend_import_status()
@@ -891,51 +856,17 @@ class DoxxingDetector(commands.Cog):
 
     @staticmethod
     def ocr_backend_import_status() -> str:
-        errors = []
         try:
-            import easyocr
-
-            return f"easyocr {getattr(easyocr, '__version__', '[unknown version]')}"
+            import pytesseract
         except ImportError as exc:
-            errors.append(f"easyocr: {exc}")
-
-        for module_name in ("rapidocr", "rapidocr_onnxruntime"):
-            try:
-                __import__(module_name, fromlist=["RapidOCR"])
-                return module_name
-            except ImportError as exc:
-                errors.append(f"{module_name}: {exc}")
-        raise ImportError("; ".join(errors))
+            raise ImportError(f"pytesseract: {exc}") from exc
+        return f"pytesseract {getattr(pytesseract, '__version__', '[unknown version]')}"
 
     def image_bytes_to_text(self, image_bytes: bytes) -> str:
         with tempfile.NamedTemporaryFile(suffix=".png") as image_file:
             image_file.write(image_bytes)
             image_file.flush()
             return self.get_ocr_engine().image_to_text(image_file.name)
-
-    @staticmethod
-    def rapid_ocr_text(result) -> str:
-        if result is None:
-            return ""
-
-        if isinstance(result, tuple):
-            result = result[0] if result else None
-            if result is None:
-                return ""
-
-        texts = getattr(result, "txts", None)
-        if texts is not None:
-            return "\n".join(text for text in texts if text)
-
-        lines = []
-        for item in result or []:
-            if not isinstance(item, (list, tuple)):
-                continue
-            if len(item) >= 2 and isinstance(item[1], str):
-                lines.append(item[1])
-            elif item and isinstance(item[0], str):
-                lines.append(item[0])
-        return "\n".join(lines)
 
     async def async_message_search_content(
         self,

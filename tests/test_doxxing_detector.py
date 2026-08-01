@@ -9,11 +9,11 @@ from doxxing_detector.doxxing_detector import (
     ALWAYS_DELETE_FORWARD_ROLE_IDS,
     AUTO_FLAG_DM,
     DoxxingDetector,
-    EasyOcrEngine,
     EXEMPT_FORWARD_SOURCE_CHANNEL_IDS,
     EXEMPT_ROLE_IDS,
     FORWARD_SOURCE_GUILD_ID,
     LOG_CHANNEL_ID,
+    TesseractOcrEngine,
     TIMEOUT_DURATION,
 )
 
@@ -398,34 +398,22 @@ class DoxxingDetectorTest(unittest.TestCase):
         self.assertEqual(text, "parsed text")
         self.assertEqual(len(ocr_paths), 1)
 
-    def test_easy_ocr_engine_reads_text_without_detail(self):
+    def test_tesseract_ocr_engine_reads_text_with_page_segmentation(self):
         calls = []
 
-        class FakeReader:
-            def readtext(self, image_path, detail=1, paragraph=True):
-                calls.append((image_path, detail, paragraph))
-                return ["first line", "", "second line"]
+        class FakePytesseract:
+            __version__ = "0.0"
+            pytesseract = SimpleNamespace(tesseract_cmd=None)
 
-        text = EasyOcrEngine(FakeReader()).image_to_text("image.png")
+            @staticmethod
+            def image_to_string(image_path, config=""):
+                calls.append((image_path, config))
+                return "parsed text"
 
-        self.assertEqual(text, "first line\nsecond line")
-        self.assertEqual(calls, [("image.png", 0, False)])
+        text = TesseractOcrEngine(FakePytesseract).image_to_text("image.png")
 
-    def test_rapid_ocr_text_accepts_current_output_object(self):
-        result = SimpleNamespace(txts=("first line", "", "second line"))
-
-        self.assertEqual(DoxxingDetector.rapid_ocr_text(result), "first line\nsecond line")
-
-    def test_rapid_ocr_text_accepts_legacy_tuple_output(self):
-        result = (
-            [
-                [[[0, 0], [1, 0], [1, 1], [0, 1]], "first line", 0.99],
-                [[[0, 2], [1, 2], [1, 3], [0, 3]], "second line", 0.98],
-            ],
-            0.1,
-        )
-
-        self.assertEqual(DoxxingDetector.rapid_ocr_text(result), "first line\nsecond line")
+        self.assertEqual(text, "parsed text")
+        self.assertEqual(calls, [("image.png", "--psm 6")])
 
     def test_ocr_dependency_report_includes_package_status(self):
         detector = DoxxingDetector(SimpleNamespace())
@@ -433,9 +421,9 @@ class DoxxingDetectorTest(unittest.TestCase):
         report = detector.ocr_dependency_report()
 
         self.assertIn("Python:", report)
-        self.assertIn("easyocr:", report)
-        self.assertIn("torch:", report)
-        self.assertIn("opencv-python-headless:", report)
+        self.assertIn("pytesseract:", report)
+        self.assertIn("Pillow:", report)
+        self.assertIn("tesseract:", report)
 
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
