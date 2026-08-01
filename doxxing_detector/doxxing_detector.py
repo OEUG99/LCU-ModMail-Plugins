@@ -33,6 +33,7 @@ EXEMPT_ROLE_IDS = {
 ALWAYS_DELETE_FORWARD_ROLE_IDS = {
     1481877137118990420,
 }
+FORWARD_DEBUG_LOGGING_ENABLED = False
 
 EMAIL_RE = re.compile(
     r"(?<![\w.+-])"
@@ -518,6 +519,9 @@ class DoxxingDetector(commands.Cog):
         return self.has_always_delete_forward_role(author)
 
     async def log_forward_debug(self, message: discord.Message, searchable_content: str):
+        if not FORWARD_DEBUG_LOGGING_ENABLED:
+            return
+
         reference = self.field_value(message, "reference")
         snapshots = self.forward_snapshots(message)
         if not self.is_forward_message(message):
