@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import datetime
+import io
 import re
 import discord
 from discord.ext import commands
@@ -57,6 +59,31 @@ FILE_TOKEN_RE = re.compile(
     r"(?!\S)",
     re.IGNORECASE,
 )
+IMAGE_ATTACHMENT_EXTENSIONS = {
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".heic",
+    ".heif",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".tif",
+    ".tiff",
+    ".webp",
+}
+IMAGE_ATTACHMENT_CONTENT_TYPES = {
+    "image/avif",
+    "image/bmp",
+    "image/gif",
+    "image/heic",
+    "image/heif",
+    "image/jpeg",
+    "image/png",
+    "image/tiff",
+    "image/webp",
+}
+MAX_OCR_ATTACHMENT_BYTES = 8 * 1024 * 1024
 
 STREET_SUFFIX_RE = (
     r"street|st|avenue|ave|road|rd|drive|dr|lane|ln|court|ct|circle|cir|"
@@ -160,8 +187,11 @@ class DoxxingDetector(commands.Cog):
         self.bot = bot
         self._warned_missing_message_content_intent = False
         self._warned_empty_forward_snapshot_content = False
+        self._warned_missing_ocr_dependencies = False
+        self._warned_ocr_failure = False
         self._reference_fetch_cache = {}
         self._message_refetch_cache = {}
+        self._attachment_ocr_cache = {}
 
     def get_log_channel(self, guild: discord.Guild | None = None):
         log_channel = guild.get_channel(LOG_CHANNEL_ID) if guild is not None else None
@@ -276,6 +306,33 @@ class DoxxingDetector(commands.Cog):
                 "`message_content` intent is disabled. Discord will hide normal "
                 "message text and forwarded snapshot content."
             ),
+            color=discord.Color.orange(),
+            timestamp=discord.utils.utcnow(),
+        )
+        await self.send_log_embed(embed, guild)
+
+    async def warn_missing_ocr_dependencies(self, guild: discord.Guild | None = None):
+        if self._warned_missing_ocr_dependencies:
+            return
+        self._warned_missing_ocr_dependencies = True
+        embed = discord.Embed(
+            title="Doxxing detector warning",
+            description=(
+                "Image OCR is enabled in the scan path, but `pytesseract` and/or "
+                "`Pillow` is not installed. Image attachment text will not be scanned."
+            ),
+            color=discord.Color.orange(),
+            timestamp=discord.utils.utcnow(),
+        )
+        await self.send_log_embed(embed, guild)
+
+    async def warn_ocr_failure(self, guild: discord.Guild | None = None):
+        if self._warned_ocr_failure:
+            return
+        self._warned_ocr_failure = True
+        embed = discord.Embed(
+            title="Doxxing detector warning",
+            description="Image OCR failed for an attachment. Text message scanning is still running.",
             color=discord.Color.orange(),
             timestamp=discord.utils.utcnow(),
         )
@@ -571,7 +628,7 @@ class DoxxingDetector(commands.Cog):
         except discord.HTTPException as exc:
             return "", f"Failed to refetch message `{message_id}` in channel `{channel_id}`: {exc}"
 
-        result = (self.message_search_content(fetched_message), None)
+        result = (await self.async_message_search_content(fetched_message), None)
         self._message_refetch_cache[cache_key] = result
         return result
 
@@ -584,6 +641,123 @@ class DoxxingDetector(commands.Cog):
             cls.field_value(attachment, "url", ""),
             cls.field_value(attachment, "proxy_url", ""),
         ]
+        return "\n".join(part for part in parts if part)
+
+    @classmethod
+    def is_image_attachment(cls, attachment: discord.Attachment | dict) -> bool:
+        content_type = (cls.field_value(attachment, "content_type", "") or "").split(";", 1)[0].lower()
+        if content_type in IMAGE_ATTACHMENT_CONTENT_TYPES:
+            return True
+
+        filename = (cls.field_value(attachment, "filename", "") or "").lower()
+        return any(filename.endswith(extension) for extension in IMAGE_ATTACHMENT_EXTENSIONS)
+
+    @classmethod
+    def attachment_ocr_cache_key(cls, attachment: discord.Attachment | dict):
+        attachment_id = cls.field_value(attachment, "id")
+        if attachment_id:
+            return ("id", attachment_id)
+        url = cls.field_value(attachment, "url") or cls.field_value(attachment, "proxy_url")
+        if url:
+            return ("url", url)
+        return None
+
+    async def ocr_attachment_text(
+        self,
+        attachment: discord.Attachment | dict,
+        guild: discord.Guild | None = None,
+    ) -> str:
+        if not self.is_image_attachment(attachment):
+            return ""
+
+        size = self.field_value(attachment, "size")
+        if size and size > MAX_OCR_ATTACHMENT_BYTES:
+            return ""
+
+        read_attachment = getattr(attachment, "read", None)
+        if read_attachment is None:
+            return ""
+
+        cache_key = self.attachment_ocr_cache_key(attachment)
+        if cache_key is not None and cache_key in self._attachment_ocr_cache:
+            return self._attachment_ocr_cache[cache_key]
+
+        try:
+            import pytesseract
+            from PIL import Image
+        except ImportError:
+            await self.warn_missing_ocr_dependencies(guild)
+            return ""
+
+        try:
+            image_bytes = await read_attachment()
+            if not image_bytes:
+                return ""
+            loop = asyncio.get_running_loop()
+            text = await loop.run_in_executor(
+                None,
+                self.image_bytes_to_text,
+                image_bytes,
+                pytesseract,
+                Image,
+            )
+        except Exception:
+            await self.warn_ocr_failure(guild)
+            return ""
+
+        text = " ".join(text.split())
+        if cache_key is not None:
+            self._attachment_ocr_cache[cache_key] = text
+        return text
+
+    @staticmethod
+    def image_bytes_to_text(image_bytes: bytes, pytesseract, image_module) -> str:
+        with image_module.open(io.BytesIO(image_bytes)) as image:
+            return pytesseract.image_to_string(image) or ""
+
+    async def async_message_search_content(
+        self,
+        message: discord.Message,
+        seen: set[int] | None = None,
+    ) -> str:
+        if seen is None:
+            seen = set()
+
+        message_id = id(message)
+        if message_id in seen:
+            return ""
+        seen.add(message_id)
+
+        parts = [self.field_value(message, "content", "")]
+        guild = self.field_value(message, "guild")
+
+        for embed in self.sequence_field(message, "embeds"):
+            parts.append(self.embed_text(embed))
+
+        for attachment in self.sequence_field(message, "attachments"):
+            parts.append(self.attachment_text(attachment))
+            if self.is_image_attachment(attachment):
+                parts.append(await self.ocr_attachment_text(attachment, guild))
+
+        for snapshot in self.forward_snapshots(message):
+            parts.append(self.field_value(snapshot, "content", ""))
+            for embed in self.sequence_field(snapshot, "embeds"):
+                parts.append(self.embed_text(embed))
+            for attachment in self.sequence_field(snapshot, "attachments"):
+                parts.append(self.attachment_text(attachment))
+                if self.is_image_attachment(attachment):
+                    parts.append(await self.ocr_attachment_text(attachment, guild))
+
+        reference = self.field_value(message, "reference")
+        if reference is not None and self.is_forward_reference(reference):
+            resolved = self.field_value(reference, "resolved")
+            if isinstance(resolved, discord.Message):
+                parts.append(await self.async_message_search_content(resolved, seen))
+
+            cached_message = self.field_value(reference, "cached_message")
+            if isinstance(cached_message, discord.Message):
+                parts.append(await self.async_message_search_content(cached_message, seen))
+
         return "\n".join(part for part in parts if part)
 
     @staticmethod
@@ -651,7 +825,7 @@ class DoxxingDetector(commands.Cog):
         except discord.HTTPException as exc:
             return "", f"Failed to fetch referenced message `{message_id}` in channel `{channel_id}`: {exc}"
 
-        return self.message_search_content(referenced_message), None
+        return await self.async_message_search_content(referenced_message), None
 
     async def fetch_referenced_message_content(self, message: discord.Message) -> tuple[str, str | None]:
         reference = self.field_value(message, "reference")
@@ -759,7 +933,7 @@ class DoxxingDetector(commands.Cog):
         if not self.has_message_content_intent():
             await self.warn_missing_message_content_intent(getattr(message, "guild", None))
 
-        content = self.message_search_content(message)
+        content = await self.async_message_search_content(message)
         refetched_content = ""
         if self.may_need_current_message_refetch(message):
             refetched_content, _error = await self.fetch_current_message_content(message)

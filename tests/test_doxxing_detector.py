@@ -345,8 +345,86 @@ class DoxxingDetectorTest(unittest.TestCase):
         self.assertIsNone(DoxxingDetector.forward_reference_channel_id(message))
         self.assertFalse(DoxxingDetector.has_forward_like_reference(message))
 
+    def test_image_attachment_detection_accepts_content_type_and_extension(self):
+        self.assertTrue(
+            DoxxingDetector.is_image_attachment(
+                SimpleNamespace(filename="scan.bin", content_type="image/png")
+            )
+        )
+        self.assertTrue(
+            DoxxingDetector.is_image_attachment(
+                SimpleNamespace(filename="scan.jpg", content_type="")
+            )
+        )
+        self.assertFalse(
+            DoxxingDetector.is_image_attachment(
+                SimpleNamespace(filename="scan.txt", content_type="text/plain")
+            )
+        )
+
 
 class DoxxingDetectorAsyncTest(unittest.IsolatedAsyncioTestCase):
+    async def test_async_search_content_includes_image_ocr_text(self):
+        class FakeDetector(DoxxingDetector):
+            async def ocr_attachment_text(self, attachment, guild=None):
+                if self.is_image_attachment(attachment):
+                    return "my number is 555-123-4567"
+                return ""
+
+        detector = FakeDetector(SimpleNamespace())
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[
+                SimpleNamespace(
+                    filename="contact.png",
+                    content_type="image/png",
+                    description="",
+                    title="",
+                    url="https://cdn.discordapp.com/attachments/contact.png",
+                    proxy_url="",
+                ),
+            ],
+            message_snapshots=[],
+            reference=None,
+            guild=None,
+        )
+
+        searchable = await detector.message_search_content_with_forward_fetch(message)
+
+        self.assertIn("phone number", DoxxingDetector.find_doxxing_types(searchable))
+
+    async def test_async_search_content_does_not_ocr_non_image_attachments(self):
+        class FakeDetector(DoxxingDetector):
+            async def ocr_attachment_text(self, attachment, guild=None):
+                self.ocr_attempts.append(attachment)
+                return "person@example.com"
+
+        detector = FakeDetector(SimpleNamespace())
+        detector.ocr_attempts = []
+        message = SimpleNamespace(
+            content="",
+            embeds=[],
+            attachments=[
+                SimpleNamespace(
+                    filename="notes.txt",
+                    content_type="text/plain",
+                    description="",
+                    title="",
+                    url="https://cdn.discordapp.com/attachments/notes.txt",
+                    proxy_url="",
+                ),
+            ],
+            message_snapshots=[],
+            reference=None,
+            guild=None,
+        )
+
+        searchable = await detector.message_search_content_with_forward_fetch(message)
+
+        self.assertEqual(detector.ocr_attempts, [])
+        self.assertNotIn("email", DoxxingDetector.find_doxxing_types(searchable))
+
     async def test_notify_author_sends_auto_flag_dm(self):
         sent_messages = []
 
