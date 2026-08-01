@@ -952,11 +952,22 @@ class DoxxingDetector(commands.Cog):
     @staticmethod
     def is_forward_reference(reference) -> bool:
         reference_type = DoxxingDetector.field_value(reference, "type")
-        return (
-            reference_type is discord.MessageReferenceType.forward
-            or reference_type == discord.MessageReferenceType.forward
-            or reference_type == discord.MessageReferenceType.forward.value
-        )
+        forward_reference_type = getattr(getattr(discord, "MessageReferenceType", None), "forward", None)
+        if forward_reference_type is not None and (
+            reference_type is forward_reference_type
+            or reference_type == forward_reference_type
+            or reference_type == getattr(forward_reference_type, "value", None)
+        ):
+            return True
+
+        reference_type_name = getattr(reference_type, "name", None)
+        if reference_type_name == "forward" or reference_type == "forward":
+            return True
+
+        try:
+            return int(reference_type) == 1
+        except (TypeError, ValueError):
+            return False
 
     @classmethod
     def message_search_content(cls, message: discord.Message, seen: set[int] | None = None) -> str:

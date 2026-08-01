@@ -292,6 +292,20 @@ class DoxxingDetectorTest(unittest.TestCase):
                 {"type": discord.MessageReferenceType.forward.value}
             )
         )
+        self.assertTrue(DoxxingDetector.is_forward_reference(SimpleNamespace(type="forward")))
+        self.assertTrue(DoxxingDetector.is_forward_reference(SimpleNamespace(type=1)))
+        self.assertFalse(DoxxingDetector.is_forward_reference(SimpleNamespace(type=0)))
+
+    def test_forward_reference_detection_works_without_discord_enum(self):
+        message_reference_type = discord.MessageReferenceType
+        try:
+            delattr(discord, "MessageReferenceType")
+
+            self.assertTrue(DoxxingDetector.is_forward_reference(SimpleNamespace(type="forward")))
+            self.assertTrue(DoxxingDetector.is_forward_reference(SimpleNamespace(type=1)))
+            self.assertFalse(DoxxingDetector.is_forward_reference(SimpleNamespace(type=0)))
+        finally:
+            discord.MessageReferenceType = message_reference_type
 
     def test_forward_message_detection_accepts_snapshots(self):
         message = SimpleNamespace(
